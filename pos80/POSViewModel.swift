@@ -7,6 +7,8 @@ final class POSViewModel: ObservableObject {
 
     private let api = APIService.shared
     private let appState = AppState.shared
+    var offlineManager: OfflineManager { OfflineManager.shared }
+    private var invoiceStore: LocalInvoiceStore { LocalInvoiceStore.shared }
 
     // MARK: Menu Data
     @Published var categories: [ProductCategory] = []
@@ -156,6 +158,7 @@ final class POSViewModel: ObservableObject {
                 modifiers: mods)
         }
 
+        let localId = UUID().uuidString
         let create = OrderCreate(
             orderType: orderType.rawValue,
             tableId: selectedTable?.id,
@@ -163,16 +166,65 @@ final class POSViewModel: ObservableObject {
             notes: orderNotes.isEmpty ? nil : orderNotes,
             customerName: customerName.isEmpty ? nil : customerName,
             customerPhone: customerPhone.isEmpty ? nil : customerPhone,
-            localId: UUID().uuidString)
+            localId: localId)
 
         do {
             let order = try await api.createOrder(create)
             return order
         } catch {
+            // If offline, queue for later
+            if !offlineManager.isOnline {
+                return nil // Caller should use placeOrderOffline instead
+            }
             self.error = error.localizedDescription
             appState.showError(error.localizedDescription)
             return nil
         }
+    }
+
+    // MARK: Place Order Offline
+    func placeOrderOffline(paymentMethod: PaymentMethod, cashTendered: Double?) {
+        guard !cartItems.isEmpty else { return }
+
+        let orderItems: [OrderItemIn] = cartItems.map { item in
+            let mods = item.selectedModifiers.map { mod in
+                OrderItemModifierIn(
+                    modifierOptionId: mod.id,
+                    optionNameAr: mod.nameAr,
+                    optionNameEn: mod.nameEn,
+                    priceDelta: mod.priceDelta)
+            }
+            return OrderItemIn(
+                productId: item.product.id,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                notes: item.notes,
+                modifiers: mods)
+        }
+
+        let localId = UUID().uuidString
+        let create = OrderCreate(
+            orderType: orderType.rawValue,
+            tableId: selectedTable?.id,
+            items: orderItems,
+            notes: orderNotes.isEmpty ? nil : orderNotes,
+            customerName: customerName.isEmpty ? nil : customerName,
+            customerPhone: customerPhone.isEmpty ? nil : customerPhone,
+            localId: localId)
+
+        offlineManager.queueOrder(create, paymentMethod: paymentMethod.rawValue, cashTendered: cashTendered)
+
+        // Create local ZATCA invoice
+        _ = invoiceStore.createInvoice(
+            orderLocalId: localId,
+            orderNumber: nil,
+            sellerNameAr: "AMPOS",
+            vatNumber: "300000000000003",
+            subtotal: cartSubtotal,
+            discountAmount: discountAmount)
+
+        clearCart()
+        appState.showSuccess("Order saved offline. Will sync when online.")
     }
 
     // MARK: Pay Order
@@ -208,6 +260,55 @@ final class POSViewModel: ObservableObject {
         } catch {
             self.error = error.localizedDescription
             appState.showError(error.localizedDescription)
+        }
+    }
+
+    // MARK: Load Held Orders
+    func loadHeldOrders() async {
+        do {
+            heldOrders = try await api.fetchHeldOrders()
+        } catch {
+            // Silently fail — held orders are supplementary
+        }
+    }
+
+    // MARK: Unhold Order (restore to cart isn't straightforward, so just unhold)
+    func unholdOrder(_ order: Order) async {
+        do {
+            _ = try await api.unholdOrder(order.id)
+            heldOrders.removeAll { $0.id == order.id }
+            appState.showSuccess("Order restored")
+        } catch {
+            self.error = error.localizedDescription
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    // MARK: Split Payment
+    func splitPayOrder(order: Order, splits: [SplitEntry]) async -> Bool {
+        isProcessingPayment = true
+        do {
+            _ = try await api.splitPayOrder(order.id, splits: splits)
+            lastCompletedOrder = order
+            clearCart()
+            appState.showSuccess("Split payment successful! Order #\(order.displayNumber ?? 0)")
+            isProcessingPayment = false
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            appState.showError(error.localizedDescription)
+            isProcessingPayment = false
+            return false
+        }
+    }
+
+    // MARK: Download Invoice PDF
+    func downloadInvoicePDF(orderId: String) async -> Data? {
+        do {
+            return try await api.downloadInvoicePDF(orderId)
+        } catch {
+            self.error = "Failed to download invoice"
+            return nil
         }
     }
 

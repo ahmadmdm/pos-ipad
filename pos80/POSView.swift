@@ -10,6 +10,7 @@ struct POSView: View {
     @State private var discountInput = ""
     @State private var noteInput = ""
     @State private var showNoteSheet = false
+    @State private var showHeldOrders = false
     @Namespace private var animation
 
     var body: some View {
@@ -43,6 +44,11 @@ struct POSView: View {
         .sheet(isPresented: $showTablePicker) { tablePicker }
         .sheet(isPresented: $showDiscountSheet) { discountSheet }
         .sheet(isPresented: $showNoteSheet) { noteSheet }
+        .sheet(isPresented: $showHeldOrders) { heldOrdersSheet }
+        .sheet(isPresented: $vm.showBarcodeScanner) {
+            BarcodeScannerSheet()
+                .environmentObject(vm)
+        }
         .sheet(isPresented: $vm.showModifierSheet) {
             if let product = vm.modifierProduct {
                 ModifierSelectionView(product: product) { modifiers in
@@ -108,6 +114,32 @@ struct POSView: View {
 
             // Quick actions
             Button {
+                Task { await vm.loadHeldOrders() }
+                showHeldOrders = true
+            } label: {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(vm.heldOrders.isEmpty ? AppTheme.textSecondary : AppTheme.warning)
+                        .frame(width: 44, height: 44)
+                        .background(AppTheme.card)
+                        .cornerRadius(AppTheme.r12)
+                        .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
+                            .strokeBorder(AppTheme.border, lineWidth: 1))
+                    if !vm.heldOrders.isEmpty {
+                        Text("\(vm.heldOrders.count)")
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(AppTheme.warning)
+                            .cornerRadius(8)
+                            .offset(x: 4, y: -4)
+                    }
+                }
+            }
+
+            Button {
                 vm.showBarcodeScanner = true
             } label: {
                 Image(systemName: "barcode.viewfinder")
@@ -145,7 +177,7 @@ struct POSView: View {
 
                 ForEach(vm.categories) { cat in
                     CategoryTab(
-                        label: cat.nameEn,
+                        label: cat.nameAr.isEmpty ? cat.nameEn : cat.nameAr,
                         icon: nil,
                         isSelected: vm.selectedCategory?.id == cat.id
                     ) {
@@ -392,6 +424,84 @@ struct POSView: View {
             .padding(24)
         }
     }
+
+    // MARK: - Held Orders Sheet
+    private var heldOrdersSheet: some View {
+        SheetContainer(title: "Held Orders") {
+            if vm.heldOrders.isEmpty {
+                VStack(spacing: 16) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 36))
+                        .foregroundColor(AppTheme.textMuted)
+                    Text("No held orders")
+                        .font(AppTheme.headline())
+                        .foregroundColor(AppTheme.textSecondary)
+                    Text("Hold an order from the cart to save it for later")
+                        .font(AppTheme.caption())
+                        .foregroundColor(AppTheme.textMuted)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(40)
+            } else {
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: 8) {
+                        ForEach(vm.heldOrders) { order in
+                            HStack(spacing: 14) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "clock.fill")
+                                            .font(.system(size: 12))
+                                            .foregroundColor(AppTheme.warning)
+                                        Text("Order #\(order.displayNumber ?? 0)")
+                                            .font(AppTheme.headline(14))
+                                            .foregroundColor(AppTheme.textPrimary)
+                                    }
+                                    if let name = order.customerName {
+                                        Text(name)
+                                            .font(AppTheme.caption(12))
+                                            .foregroundColor(AppTheme.textMuted)
+                                    }
+                                    Text("\(order.items?.count ?? 0) items")
+                                        .font(AppTheme.caption(11))
+                                        .foregroundColor(AppTheme.textMuted)
+                                }
+
+                                Spacer()
+
+                                Text(order.totalSafe.sarFormatted)
+                                    .font(AppTheme.mono(14))
+                                    .foregroundColor(AppTheme.textPrimary)
+
+                                Button {
+                                    Task {
+                                        await vm.unholdOrder(order)
+                                        if vm.heldOrders.isEmpty {
+                                            showHeldOrders = false
+                                        }
+                                    }
+                                } label: {
+                                    Text("Restore")
+                                        .font(AppTheme.caption(12))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(AppTheme.accent)
+                                        .cornerRadius(8)
+                                }
+                            }
+                            .padding(14)
+                            .background(AppTheme.card)
+                            .cornerRadius(AppTheme.r12)
+                            .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
+                                .strokeBorder(AppTheme.border, lineWidth: 1))
+                        }
+                    }
+                    .padding(20)
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Product Card
@@ -438,11 +548,15 @@ struct ProductCard: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(product.nameEn)
+                    Text(product.nameAr)
                         .font(AppTheme.headline(14))
                         .foregroundColor(AppTheme.textPrimary)
-                        .lineLimit(2)
+                        .lineLimit(1)
                         .minimumScaleFactor(0.85)
+                    Text(product.nameEn)
+                        .font(AppTheme.caption(11))
+                        .foregroundColor(AppTheme.textSecondary)
+                        .lineLimit(1)
 
                     Spacer(minLength: 4)
 
@@ -556,7 +670,7 @@ struct ModifierSelectionView: View {
     }
 
     var body: some View {
-        SheetContainer(title: product.nameEn) {
+        SheetContainer(title: product.nameAr.isEmpty ? product.nameEn : product.nameAr) {
             VStack(alignment: .leading, spacing: 20) {
                 // Price header
                 HStack {
@@ -571,7 +685,7 @@ struct ModifierSelectionView: View {
                 ForEach(product.modifiers ?? []) { group in
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
-                            Text(group.nameEn)
+                            Text(group.nameAr.isEmpty ? group.nameEn : group.nameAr)
                                 .font(AppTheme.headline())
                                 .foregroundColor(AppTheme.textPrimary)
                             Spacer()
@@ -597,7 +711,7 @@ struct ModifierSelectionView: View {
                                                 .frame(width: 14, height: 14)
                                         }
                                     }
-                                    Text(option.nameEn)
+                                    Text(option.nameAr.isEmpty ? option.nameEn : option.nameAr)
                                         .font(AppTheme.body())
                                         .foregroundColor(AppTheme.textPrimary)
                                     Spacer()

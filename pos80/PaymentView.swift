@@ -5,6 +5,7 @@ struct PaymentView: View {
     @EnvironmentObject var vm: POSViewModel
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) var dismiss
+    @ObservedObject private var offlineManager = OfflineManager.shared
 
     @State private var selectedMethod: PaymentMethod = .cash
     @State private var cashInput = ""
@@ -15,15 +16,34 @@ struct PaymentView: View {
     @State private var successScale: CGFloat = 0.5
     @State private var successOpacity: Double = 0
 
+    // Split payment state
+    @State private var isSplitMode = false
+    @State private var splitEntries: [SplitEntryUI] = []
+    @State private var splitMethodSelection: PaymentMethod = .cash
+    @State private var splitAmountInput = ""
+
     private var cashChange: Double {
         guard selectedMethod == .cash, let tendered = Double(cashInput) else { return 0 }
         return max(0, tendered - vm.cartTotal)
     }
 
     private var cashIsValid: Bool {
+        if isSplitMode { return splitIsValid }
         guard selectedMethod == .cash else { return true }
         guard let tendered = Double(cashInput) else { return false }
         return tendered >= vm.cartTotal
+    }
+
+    private var splitTotal: Double {
+        splitEntries.reduce(0) { $0 + $1.amount }
+    }
+
+    private var splitRemaining: Double {
+        max(0, vm.cartTotal - splitTotal)
+    }
+
+    private var splitIsValid: Bool {
+        !splitEntries.isEmpty && abs(splitTotal - vm.cartTotal) < 0.02
     }
 
     var body: some View {
@@ -164,18 +184,140 @@ struct PaymentView: View {
     // MARK: - Payment Methods
     private var paymentMethods: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Payment Method")
-                .font(AppTheme.headline())
-                .foregroundColor(AppTheme.textSecondary)
-
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                ForEach([PaymentMethod.cash, .card, .apple_pay, .mada], id: \.self) { method in
-                    PaymentMethodButton(
-                        method: method,
-                        isSelected: selectedMethod == method
-                    ) { selectedMethod = method }
+            HStack {
+                Text("Payment Method")
+                    .font(AppTheme.headline())
+                    .foregroundColor(AppTheme.textSecondary)
+                Spacer()
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        isSplitMode.toggle()
+                        if isSplitMode {
+                            splitEntries = []
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.branch")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(isSplitMode ? "Single" : "Split")
+                            .font(AppTheme.caption(12))
+                    }
+                    .foregroundColor(isSplitMode ? .white : AppTheme.accent)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(isSplitMode ? AppTheme.accent : AppTheme.accent.opacity(0.12))
+                    .cornerRadius(8)
                 }
             }
+
+            if isSplitMode {
+                splitPaymentSection
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    ForEach([PaymentMethod.cash, .card, .apple_pay, .mada], id: \.self) { method in
+                        PaymentMethodButton(
+                            method: method,
+                            isSelected: selectedMethod == method
+                        ) { selectedMethod = method }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Split Payment Section
+    private var splitPaymentSection: some View {
+        VStack(spacing: 12) {
+            // Existing splits
+            ForEach(Array(splitEntries.enumerated()), id: \.element.id) { idx, entry in
+                HStack {
+                    Image(systemName: entry.method.icon)
+                        .foregroundColor(AppTheme.accent)
+                        .frame(width: 24)
+                    Text(entry.method.displayName)
+                        .font(AppTheme.caption(13))
+                        .foregroundColor(AppTheme.textPrimary)
+                    Spacer()
+                    Text(entry.amount.sarFormatted)
+                        .font(AppTheme.mono(13))
+                        .foregroundColor(AppTheme.textPrimary)
+                    Button {
+                        splitEntries.remove(at: idx)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(AppTheme.danger.opacity(0.7))
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(AppTheme.card)
+                .cornerRadius(AppTheme.r8)
+            }
+
+            // Add new split
+            if splitRemaining > 0.01 {
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        ForEach([PaymentMethod.cash, .card, .apple_pay, .mada], id: \.self) { method in
+                            Button {
+                                splitMethodSelection = method
+                            } label: {
+                                Image(systemName: method.icon)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(splitMethodSelection == method ? .white : AppTheme.textSecondary)
+                                    .frame(width: 36, height: 36)
+                                    .background(splitMethodSelection == method ? AppTheme.accent : AppTheme.card)
+                                    .cornerRadius(8)
+                            }
+                        }
+                        Spacer()
+                    }
+                    HStack(spacing: 8) {
+                        TextField("Amount", text: $splitAmountInput)
+                            .font(AppTheme.body(14))
+                            .foregroundColor(AppTheme.textPrimary)
+                            .keyboardType(.decimalPad)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(AppTheme.card)
+                            .cornerRadius(AppTheme.r8)
+                        Button {
+                            splitAmountInput = String(format: "%.2f", splitRemaining)
+                        } label: {
+                            Text("Rest")
+                                .font(AppTheme.caption(12))
+                                .foregroundColor(AppTheme.accent)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 10)
+                                .background(AppTheme.accent.opacity(0.12))
+                                .cornerRadius(AppTheme.r8)
+                        }
+                        Button {
+                            guard let amount = Double(splitAmountInput), amount > 0 else { return }
+                            splitEntries.append(SplitEntryUI(method: splitMethodSelection, amount: min(amount, splitRemaining)))
+                            splitAmountInput = ""
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 24))
+                                .foregroundColor(AppTheme.accent)
+                        }
+                    }
+                }
+            }
+
+            // Remaining label
+            HStack {
+                Text("Remaining")
+                    .font(AppTheme.caption(12))
+                    .foregroundColor(AppTheme.textMuted)
+                Spacer()
+                Text(splitRemaining.sarFormatted)
+                    .font(AppTheme.headline(14))
+                    .foregroundColor(splitRemaining > 0.01 ? AppTheme.warning : AppTheme.success)
+            }
+            .padding(.horizontal, 4)
         }
     }
 
@@ -251,31 +393,52 @@ struct PaymentView: View {
 
     // MARK: - Action Button
     private var actionButton: some View {
-        Button {
-            Task { await processPayment() }
-        } label: {
-            HStack(spacing: 12) {
-                if isPlacing {
-                    ProgressView().tint(.white)
-                } else {
-                    Image(systemName: selectedMethod.icon)
-                        .font(.system(size: 18, weight: .semibold))
-                    Text("Confirm \(selectedMethod.displayName) Payment")
-                        .font(AppTheme.headline(16))
+        VStack(spacing: 8) {
+            // Offline indicator
+            if !offlineManager.isOnline {
+                HStack(spacing: 6) {
+                    Image(systemName: "wifi.slash")
+                        .font(.system(size: 12))
+                    Text("Offline mode — order will sync when connected")
+                        .font(AppTheme.caption(11))
                 }
+                .foregroundColor(AppTheme.warning)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(AppTheme.warning.opacity(0.1))
+                .cornerRadius(AppTheme.r8)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 58)
-            .background(isPlacing ? AnyShapeStyle(AppTheme.accent.opacity(0.5)) : AnyShapeStyle(AppTheme.accentGradH))
-            .cornerRadius(AppTheme.r16)
-            .shadow(color: AppTheme.accent.opacity(0.4), radius: 16, y: 6)
+
+            Button {
+                Task { await processPayment() }
+            } label: {
+                HStack(spacing: 12) {
+                    if isPlacing {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: isSplitMode ? "arrow.branch" : selectedMethod.icon)
+                            .font(.system(size: 18, weight: .semibold))
+                        Text(isSplitMode ? "Confirm Split Payment" : "Confirm \(selectedMethod.displayName) Payment")
+                            .font(AppTheme.headline(16))
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 58)
+                .background(isPlacing ? AnyShapeStyle(AppTheme.accent.opacity(0.5)) : AnyShapeStyle(AppTheme.accentGradH))
+                .cornerRadius(AppTheme.r16)
+                .shadow(color: AppTheme.accent.opacity(0.4), radius: 16, y: 6)
+            }
+            .buttonStyle(.plain)
+            .disabled(isPlacing || !cashIsValid)
+            .opacity(!cashIsValid ? 0.5 : 1)
         }
-        .buttonStyle(.plain)
-        .disabled(isPlacing || !cashIsValid)
-        .opacity(!cashIsValid ? 0.5 : 1)
     }
 
     // MARK: - Success Screen
+    @State private var invoiceData: Data?
+    @State private var showShareSheet = false
+
     private var successScreen: some View {
         VStack(spacing: 32) {
             Spacer()
@@ -304,7 +467,7 @@ struct PaymentView: View {
                         .font(AppTheme.headline())
                         .foregroundColor(AppTheme.textSecondary)
                 }
-                if cashChange > 0 {
+                if cashChange > 0 && !isSplitMode {
                     HStack(spacing: 8) {
                         Image(systemName: "banknote.fill")
                             .foregroundColor(AppTheme.success)
@@ -323,6 +486,51 @@ struct PaymentView: View {
             Spacer()
 
             VStack(spacing: 12) {
+                // Download Invoice button
+                if let order = placedOrder {
+                    Button {
+                        Task {
+                            invoiceData = await vm.downloadInvoicePDF(orderId: order.id)
+                            if invoiceData != nil {
+                                showShareSheet = true
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.down.doc.fill")
+                                .font(.system(size: 16, weight: .semibold))
+                            Text("Download Invoice")
+                                .font(AppTheme.headline(14))
+                        }
+                        .foregroundColor(AppTheme.accent)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(AppTheme.accent.opacity(0.12))
+                        .cornerRadius(AppTheme.r12)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // Print Receipt button
+                if let order = placedOrder {
+                    Button {
+                        Task { await autoPrintReceipt(order: order) }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "printer.fill")
+                                .font(.system(size: 16, weight: .semibold))
+                            Text("Print Receipt")
+                                .font(AppTheme.headline(14))
+                        }
+                        .foregroundColor(AppTheme.success)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(AppTheme.success.opacity(0.12))
+                        .cornerRadius(AppTheme.r12)
+                    }
+                    .buttonStyle(.plain)
+                }
+
                 Button {
                     dismiss()
                 } label: {
@@ -340,18 +548,45 @@ struct PaymentView: View {
             .padding(.bottom, 40)
             .opacity(successOpacity)
         }
+        .sheet(isPresented: $showShareSheet) {
+            if let data = invoiceData {
+                ShareSheet(items: [data])
+            }
+        }
     }
 
     // MARK: - Process Payment
     private func processPayment() async {
         isPlacing = true
-        guard let order = await vm.placeOrder() else {
+        let cashTendered = selectedMethod == .cash ? Double(cashInput) : nil
+
+        // Offline mode: queue order locally
+        if !offlineManager.isOnline {
+            vm.placeOrderOffline(paymentMethod: isSplitMode ? .split : selectedMethod, cashTendered: cashTendered)
             isPlacing = false
-            // vm.placeOrder() already calls appState.showError on failure
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.6)) {
+                orderPlaced = true
+                successScale = 1
+                successOpacity = 1
+            }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { dismiss() }
             return
         }
-        let cashTendered = selectedMethod == .cash ? Double(cashInput) : nil
-        let success = await vm.payOrder(order: order, method: selectedMethod, cashTendered: cashTendered)
+
+        // Online mode
+        guard let order = await vm.placeOrder() else {
+            isPlacing = false
+            return
+        }
+
+        var success = false
+        if isSplitMode {
+            let splits = splitEntries.map { SplitEntry(method: $0.method.rawValue, amount: $0.amount) }
+            success = await vm.splitPayOrder(order: order, splits: splits)
+        } else {
+            success = await vm.payOrder(order: order, method: selectedMethod, cashTendered: cashTendered)
+        }
         isPlacing = false
 
         if success {
@@ -363,10 +598,10 @@ struct PaymentView: View {
             }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
 
-            // Auto-close after 4 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-                dismiss()
-            }
+            // Auto-print receipt
+            Task { await autoPrintReceipt(order: placedOrder!) }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { dismiss() }
         }
     }
 
@@ -380,6 +615,54 @@ struct PaymentView: View {
             if a > total && !amounts.contains(a) { amounts.append(a) }
         }
         return amounts
+    }
+
+    private func autoPrintReceipt(order: Order) async {
+        // Check if printer is configured
+        guard let ip = UserDefaults.standard.string(forKey: "receipt_printer_ip"),
+              !ip.isEmpty,
+              let portStr = UserDefaults.standard.string(forKey: "receipt_printer_port"),
+              let port = UInt16(portStr) else {
+            // Try from API settings if saved
+            if let settings = try? await APIService.shared.fetchSettings(),
+               let ip = settings.receiptPrinterIp, !ip.isEmpty,
+               let p = settings.receiptPrinterPort, let port = UInt16(exactly: p) {
+                await doPrint(order: order, ip: ip, port: port)
+            }
+            return
+        }
+        await doPrint(order: order, ip: ip, port: port)
+    }
+
+    private func doPrint(order: Order, ip: String, port: UInt16) async {
+        let receipt = ReceiptData(
+            storeName: "AMPOS",
+            storeNameAr: nil,
+            vatNumber: UserDefaults.standard.string(forKey: "vat_number"),
+            branchName: nil,
+            orderNumber: "\(order.displayNumber ?? 0)",
+            orderType: order.orderType,
+            cashierName: appState.currentUser?.nameEn ?? "Cashier",
+            items: vm.cartItems.map { item in
+                ReceiptData.ReceiptItem(
+                    nameAr: item.product.nameAr,
+                    nameEn: item.product.nameEn,
+                    quantity: item.quantity,
+                    unitPrice: item.unitPrice,
+                    total: item.lineTotal,
+                    modifiers: item.modifierSummary.isEmpty ? nil : item.modifierSummary
+                )
+            },
+            subtotal: vm.cartSubtotal,
+            vatAmount: vm.cartVAT,
+            total: vm.cartTotal,
+            paymentMethod: (isSplitMode ? "Split" : selectedMethod.displayName),
+            amountPaid: selectedMethod == .cash ? (Double(cashInput) ?? vm.cartTotal) : vm.cartTotal,
+            change: cashChange > 0 ? cashChange : 0,
+            qrData: nil,
+            footer: UserDefaults.standard.string(forKey: "receipt_footer")
+        )
+        _ = await ReceiptPrinter.shared.printReceipt(receipt: receipt, ip: ip, port: port)
     }
 }
 
@@ -421,4 +704,22 @@ struct PaymentMethodButton: View {
         .scaleEffect(isSelected ? 1.02 : 1)
         .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isSelected)
     }
+}
+
+// MARK: - Split Entry UI Model
+struct SplitEntryUI: Identifiable {
+    let id = UUID()
+    let method: PaymentMethod
+    let amount: Double
+}
+
+// MARK: - Share Sheet (for invoice PDF)
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

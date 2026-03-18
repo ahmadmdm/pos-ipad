@@ -289,8 +289,49 @@ struct SettingsToggleRow: View {
 struct GeneralSettingsSection: View {
     @Binding var settings: AppSettings?
     @EnvironmentObject private var appState: AppState
+    @State private var apiURL: String = UserDefaults.standard.string(forKey: "api_base_url") ?? "http://localhost:8000"
 
     var body: some View {
+        SettingsCard(title: "Server Connection", subtitle: "API endpoint", icon: "server.rack", color: AppTheme.info) {
+            HStack {
+                Text("Server URL")
+                    .font(AppTheme.caption(13))
+                    .foregroundColor(AppTheme.textSecondary)
+                    .frame(width: 100, alignment: .leading)
+                Spacer()
+                TextField("http://localhost:8000", text: $apiURL)
+                    .font(AppTheme.caption(13))
+                    .foregroundColor(AppTheme.textPrimary)
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: 300)
+                    .onSubmit {
+                        UserDefaults.standard.set(apiURL, forKey: "api_base_url")
+                    }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(AppTheme.border.opacity(0.6)).frame(height: 0.5).padding(.leading, 20)
+            }
+
+            HStack {
+                Spacer()
+                Button {
+                    UserDefaults.standard.set(apiURL, forKey: "api_base_url")
+                    appState.showSuccess("Server URL saved")
+                } label: {
+                    Text("Save")
+                        .font(AppTheme.caption(13))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(AppTheme.accent)
+                        .cornerRadius(8)
+                }
+                .padding(12)
+            }
+        }
+
         SettingsCard(title: "Store Info", icon: "building.2.fill", color: AppTheme.accent) {
             SettingsRow(label: "Business Name", value: "AMPOS")
             SettingsRow(label: "Currency", value: settings?.currency ?? "SAR")
@@ -361,9 +402,16 @@ struct GeneralSettingsSection: View {
 // MARK: - Receipt Settings
 struct ReceiptSettingsSection: View {
     @Binding var settings: AppSettings?
+    @EnvironmentObject private var appState: AppState
+    @State private var footer = ""
+    @State private var paperSize = "80mm"
+    @State private var fontSize = "normal"
     @State private var autoprint = true
     @State private var showLogo   = true
     @State private var showVAT    = true
+    @State private var isSaving = false
+
+    private let api = APIService.shared
 
     var body: some View {
         SettingsCard(title: "Receipt Options", icon: "doc.text.fill", color: AppTheme.info) {
@@ -372,25 +420,99 @@ struct ReceiptSettingsSection: View {
             SettingsToggleRow(label: "Include VAT breakdown", subtitle: "Show tax details on receipt", isOn: $showVAT)
         }
 
-        SettingsCard(title: "Receipt Footer", icon: "text.alignleft", color: AppTheme.textSecondary) {
+        SettingsCard(title: "Receipt Format", icon: "doc.richtext.fill", color: AppTheme.accent) {
             HStack {
-                Text(settings?.receiptFooter ?? "Thank you for your visit!")
+                Text("Paper Size")
                     .font(AppTheme.caption(13))
-                    .foregroundColor(AppTheme.textMuted)
-                    .padding(16)
+                    .foregroundColor(AppTheme.textSecondary)
                 Spacer()
+                Picker("", selection: $paperSize) {
+                    Text("58mm").tag("58mm")
+                    Text("80mm").tag("80mm")
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 180)
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+
+            HStack {
+                Text("Font Size")
+                    .font(AppTheme.caption(13))
+                    .foregroundColor(AppTheme.textSecondary)
+                Spacer()
+                Picker("", selection: $fontSize) {
+                    Text("Small").tag("small")
+                    Text("Normal").tag("normal")
+                    Text("Large").tag("large")
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 220)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
         }
+
+        SettingsCard(title: "Receipt Footer", icon: "text.alignleft", color: AppTheme.textSecondary) {
+            TextField("Footer text...", text: $footer)
+                .font(AppTheme.caption(13))
+                .foregroundColor(AppTheme.textPrimary)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+        }
+
+        HStack {
+            Spacer()
+            Button {
+                Task { await saveReceiptSettings() }
+            } label: {
+                HStack(spacing: 6) {
+                    if isSaving { ProgressView().tint(.white).scaleEffect(0.7) }
+                    Text("Save Receipt Settings")
+                }
+                .font(AppTheme.caption(13))
+                .foregroundColor(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(AppTheme.accent)
+                .cornerRadius(10)
+            }
+            .disabled(isSaving)
+        }
+        .onAppear {
+            footer = settings?.receiptFooter ?? "Thank you for your visit!"
+            paperSize = settings?.paperSize ?? "80mm"
+            fontSize = settings?.receiptFontSize ?? "normal"
+        }
+    }
+
+    private func saveReceiptSettings() async {
+        guard var s = settings else { return }
+        isSaving = true
+        s.receiptFooter = footer
+        s.paperSize = paperSize
+        s.receiptFontSize = fontSize
+        do {
+            settings = try await api.updateSettings(s)
+            appState.showSuccess("Receipt settings saved")
+        } catch {
+            appState.showSuccess("Failed to save: \(error.localizedDescription)")
+        }
+        isSaving = false
     }
 }
 
 // MARK: - Printer Settings
 struct PrinterSettingsSection: View {
     @Binding var settings: AppSettings?
+    @EnvironmentObject private var appState: AppState
     @State private var receiptIP    = ""
     @State private var receiptPort  = "9100"
     @State private var kitchenIP    = ""
     @State private var kitchenPort  = "9100"
+    @State private var isSaving = false
+
+    private let api = APIService.shared
 
     var body: some View {
         SettingsCard(title: "Receipt Printer", icon: "printer.fill", color: AppTheme.success) {
@@ -398,20 +520,57 @@ struct PrinterSettingsSection: View {
             printerField("Port", text: $receiptPort, placeholder: "9100")
             HStack {
                 Spacer()
-                Button("Test Print") {}
+                Button {
+                    Task { await savePrinterSettings() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if isSaving {
+                            ProgressView().tint(.white).scaleEffect(0.7)
+                        }
+                        Text("Save & Test Print")
+                    }
                     .font(AppTheme.caption(13))
-                    .foregroundColor(AppTheme.success)
+                    .foregroundColor(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(AppTheme.success.opacity(0.12))
+                    .background(AppTheme.success)
                     .cornerRadius(8)
                     .padding()
+                }
+                .disabled(isSaving)
             }
         }
 
         SettingsCard(title: "Kitchen Printer", icon: "printer.dotmatrix.fill", color: AppTheme.warning) {
             printerField("IP Address", text: $kitchenIP, placeholder: "192.168.1.101")
             printerField("Port", text: $kitchenPort, placeholder: "9100")
+            HStack {
+                Spacer()
+                Button {
+                    Task { await saveKitchenSettings() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if isSaving {
+                            ProgressView().tint(AppTheme.warning).scaleEffect(0.7)
+                        }
+                        Text("Save")
+                    }
+                    .font(AppTheme.caption(13))
+                    .foregroundColor(AppTheme.warning)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(AppTheme.warning.opacity(0.12))
+                    .cornerRadius(8)
+                    .padding()
+                }
+                .disabled(isSaving)
+            }
+        }
+        .onAppear {
+            receiptIP = settings?.receiptPrinterIp ?? ""
+            receiptPort = settings?.receiptPrinterPort.map(String.init) ?? "9100"
+            kitchenIP = settings?.kitchenPrinterIp ?? ""
+            kitchenPort = settings?.kitchenPrinterPort.map(String.init) ?? "9100"
         }
     }
 
@@ -433,6 +592,48 @@ struct PrinterSettingsSection: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(AppTheme.border.opacity(0.6)).frame(height: 0.5).padding(.leading, 20)
         }
+    }
+
+    private func savePrinterSettings() async {
+        guard var s = settings else { return }
+        isSaving = true
+        s.receiptPrinterIp = receiptIP.isEmpty ? nil : receiptIP
+        s.receiptPrinterPort = Int(receiptPort)
+        // Cache locally for receipt printing
+        UserDefaults.standard.set(receiptIP, forKey: "receipt_printer_ip")
+        UserDefaults.standard.set(receiptPort, forKey: "receipt_printer_port")
+        do {
+            settings = try await api.updateSettings(s)
+            // Test print and show real result
+            if !receiptIP.isEmpty, let port = UInt16(receiptPort) {
+                appState.showSuccess("Connecting to printer \(receiptIP):\(port)…")
+                let ok = await ReceiptPrinter.shared.testPrint(ip: receiptIP, port: port)
+                if ok {
+                    appState.showSuccess("✅ Test print sent successfully!")
+                } else {
+                    appState.showSuccess("❌ Could not reach printer. Check IP/port (ESC/POS = 9100)")
+                }
+            } else {
+                appState.showSuccess("Printer settings saved")
+            }
+        } catch {
+            appState.showSuccess("Failed to save: \(error.localizedDescription)")
+        }
+        isSaving = false
+    }
+
+    private func saveKitchenSettings() async {
+        guard var s = settings else { return }
+        isSaving = true
+        s.kitchenPrinterIp = kitchenIP.isEmpty ? nil : kitchenIP
+        s.kitchenPrinterPort = Int(kitchenPort)
+        do {
+            settings = try await api.updateSettings(s)
+            appState.showSuccess("Kitchen printer saved")
+        } catch {
+            appState.showSuccess("Failed to save: \(error.localizedDescription)")
+        }
+        isSaving = false
     }
 }
 

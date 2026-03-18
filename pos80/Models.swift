@@ -130,7 +130,7 @@ struct CartItem: Identifiable {
     var lineTotal: Double { unitPrice * Double(quantity) }
 
     var modifierSummary: String {
-        selectedModifiers.map { $0.nameEn }.joined(separator: ", ")
+        selectedModifiers.map { $0.nameAr.isEmpty ? $0.nameEn : "\($0.nameAr) (\($0.nameEn))" }.joined(separator: ", ")
     }
 }
 
@@ -645,4 +645,14 @@ struct Staff: Codable, Identifiable {
         case branchId = "branch_id"
         case phone
     }
+}
+
+// MARK: - Split Payment
+struct SplitEntry: Codable {
+    let method: String
+    let amount: Double
+}
+
+struct SplitPaymentRequest: Codable {
+    let splits: [SplitEntry]
 }

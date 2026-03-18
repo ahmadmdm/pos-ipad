@@ -1,5 +1,6 @@
 // OrdersView.swift — Orders list and detail view
 import SwiftUI
+import QuickLook
 
 struct OrdersView: View {
     @EnvironmentObject var appState: AppState
@@ -8,6 +9,9 @@ struct OrdersView: View {
     @State private var selectedStatus: String? = nil
     @State private var selectedOrder: Order?
     @State private var searchText = ""
+    @State private var pdfData: Data?
+    @State private var showPDFPreview = false
+    @State private var isDownloadingPDF = false
 
     private let api = APIService.shared
 
@@ -75,6 +79,21 @@ struct OrdersView: View {
             }
         }
         .task { await loadOrders() }
+        .sheet(isPresented: $showPDFPreview) {
+            if let data = pdfData {
+                PDFPreviewSheet(data: data)
+            }
+        }
+    }
+
+    private func downloadPDF(for order: Order) async {
+        isDownloadingPDF = true
+        do {
+            let data = try await api.downloadInvoicePDF(order.id)
+            pdfData = data
+            showPDFPreview = true
+        } catch {}
+        isDownloadingPDF = false
     }
 
     // MARK: - Header
@@ -150,6 +169,9 @@ struct OrdersView: View {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                             selectedOrder = order
                         }
+                    } onPDF: {
+
+                        Task { await downloadPDF(for: order) }
                     }
                 }
             }
@@ -185,6 +207,7 @@ struct OrderRow: View {
     let order: Order
     let isSelected: Bool
     let onTap: () -> Void
+    var onPDF: (() -> Void)? = nil
 
     var body: some View {
         Button(action: onTap) {
@@ -237,6 +260,21 @@ struct OrderRow: View {
                             .font(AppTheme.caption(11))
                             .foregroundColor(AppTheme.textMuted)
                     }
+                }
+
+                // PDF button
+                if order.status == "paid" {
+                    Button {
+                        onPDF?()
+                    } label: {
+                        Image(systemName: "doc.text.fill")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(AppTheme.accent)
+                            .frame(width: 32, height: 32)
+                            .background(AppTheme.accent.opacity(0.12))
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 16)
@@ -292,6 +330,9 @@ struct OrderDetailView: View {
 
     @State private var isUpdating = false
     @State private var showPaySheet = false
+    @State private var isDownloadingPDF = false
+    @State private var detailPdfData: Data?
+    @State private var showPDFPreview = false
     private let api = APIService.shared
 
     var body: some View {
@@ -312,9 +353,32 @@ struct OrderDetailView: View {
                         }
                     }
                     Spacer()
-                    Text(order.totalSafe.sarFormatted)
-                        .font(AppTheme.display(32))
-                        .foregroundStyle(AppTheme.accentGrad)
+                    VStack(alignment: .trailing, spacing: 8) {
+                        Text(order.totalSafe.sarFormatted)
+                            .font(AppTheme.display(32))
+                            .foregroundStyle(AppTheme.accentGrad)
+                        if order.status == "paid" {
+                            Button {
+                                Task { await downloadDetailPDF() }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    if isDownloadingPDF {
+                                        ProgressView().controlSize(.small)
+                                    } else {
+                                        Image(systemName: "doc.text.fill")
+                                    }
+                                    Text("Invoice PDF")
+                                }
+                                .font(AppTheme.headline(13))
+                                .foregroundColor(AppTheme.accent)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(AppTheme.accent.opacity(0.1))
+                                .cornerRadius(8)
+                            }
+                            .disabled(isDownloadingPDF)
+                        }
+                    }
                 }
                 .padding(20)
                 .background(AppTheme.card)
@@ -380,6 +444,11 @@ struct OrderDetailView: View {
             }
             .padding(20)
         }
+        .sheet(isPresented: $showPDFPreview) {
+            if let data = detailPdfData {
+                PDFPreviewSheet(data: data)
+            }
+        }
     }
 
     private var statusActions: some View {
@@ -407,6 +476,16 @@ struct OrderDetailView: View {
                 await updateStatus("cancelled")
             }
         }
+    }
+
+    private func downloadDetailPDF() async {
+        isDownloadingPDF = true
+        do {
+            let data = try await api.downloadInvoicePDF(order.id)
+            detailPdfData = data
+            showPDFPreview = true
+        } catch {}
+        isDownloadingPDF = false
     }
 
     private func updateStatus(_ newStatus: String) async {
@@ -466,4 +545,70 @@ struct StatusActionButton: View {
         }
         .buttonStyle(.plain)
     }
+}
+
+// MARK: - PDF Preview Sheet
+import PDFKit
+
+struct PDFPreviewSheet: View {
+    let data: Data
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            PDFViewerController(data: data)
+                .ignoresSafeArea(edges: .bottom)
+                .navigationTitle("Invoice")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close") { dismiss() }
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            let tmp = FileManager.default.temporaryDirectory
+                                .appendingPathComponent("Invoice.pdf")
+                            try? data.write(to: tmp)
+                            let ac = UIActivityViewController(activityItems: [tmp], applicationActivities: nil)
+                            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                               let vc = scene.windows.first?.rootViewController {
+                                vc.present(ac, animated: true)
+                            }
+                        } label: { Image(systemName: "square.and.arrow.up") }
+                    }
+                }
+        }
+    }
+}
+
+struct PDFViewerController: UIViewControllerRepresentable {
+    let data: Data
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        let vc = UIViewController()
+        vc.view.backgroundColor = .white
+
+        let pdfView = PDFView()
+        pdfView.translatesAutoresizingMaskIntoConstraints = false
+        pdfView.autoScales = true
+        pdfView.displayMode = .singlePageContinuous
+        pdfView.displayDirection = .vertical
+        pdfView.backgroundColor = .white
+        pdfView.overrideUserInterfaceStyle = .light
+
+        vc.view.addSubview(pdfView)
+        NSLayoutConstraint.activate([
+            pdfView.topAnchor.constraint(equalTo: vc.view.topAnchor),
+            pdfView.bottomAnchor.constraint(equalTo: vc.view.bottomAnchor),
+            pdfView.leadingAnchor.constraint(equalTo: vc.view.leadingAnchor),
+            pdfView.trailingAnchor.constraint(equalTo: vc.view.trailingAnchor),
+        ])
+
+        if let document = PDFDocument(data: data) {
+            pdfView.document = document
+        }
+        return vc
+    }
+
+    func updateUIViewController(_ vc: UIViewController, context: Context) {}
 }

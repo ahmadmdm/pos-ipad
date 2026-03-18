@@ -53,6 +53,7 @@ final class AppState: ObservableObject {
             let token = try await api.login(email: email, password: password)
             api.accessToken = token.accessToken
             api.refreshToken = token.refreshToken
+            api.tenantSlug = token.tenantSlug
             currentUser = CurrentUser(from: token)
             await loadInitialData()
             withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
@@ -71,6 +72,7 @@ final class AppState: ObservableObject {
             let token = try await api.loginWithPIN(email: email, pin: pin)
             api.accessToken = token.accessToken
             api.refreshToken = token.refreshToken
+            api.tenantSlug = token.tenantSlug
             currentUser = CurrentUser(from: token)
             await loadInitialData()
             withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
@@ -84,6 +86,7 @@ final class AppState: ObservableObject {
 
     func logout() {
         api.logout()
+        api.tenantSlug = nil
         currentUser = nil
         currentShift = nil
         shiftLoaded = false

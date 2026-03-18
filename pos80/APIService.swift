@@ -3,8 +3,10 @@ import Foundation
 
 // MARK: - Configuration
 enum APIConfig {
-    static let baseURL = "http://localhost:8000"
-    static let apiV1   = "\(baseURL)/api/v1"
+    static var baseURL: String {
+        UserDefaults.standard.string(forKey: "api_base_url") ?? "http://localhost:8000"
+    }
+    static var apiV1: String { "\(baseURL)/api/v1" }
 }
 
 // MARK: - HTTP Method
@@ -22,6 +24,7 @@ final class APIService {
     // MARK: Token Storage (UserDefaults — simple; swap for Keychain in production)
     private let tokenKey        = "pos_access_token"
     private let refreshTokenKey = "pos_refresh_token"
+    private let tenantSlugKey   = "pos_tenant_slug"
 
     var accessToken: String? {
         get { UserDefaults.standard.string(forKey: tokenKey) }
@@ -30,6 +33,10 @@ final class APIService {
     var refreshToken: String? {
         get { UserDefaults.standard.string(forKey: refreshTokenKey) }
         set { UserDefaults.standard.set(newValue, forKey: refreshTokenKey) }
+    }
+    var tenantSlug: String? {
+        get { UserDefaults.standard.string(forKey: tenantSlugKey) }
+        set { UserDefaults.standard.set(newValue, forKey: tenantSlugKey) }
     }
     var isAuthenticated: Bool { accessToken != nil }
 
@@ -50,6 +57,10 @@ final class APIService {
 
         if requiresAuth, let token = accessToken {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        if let slug = tenantSlug {
+            req.setValue(slug, forHTTPHeaderField: "X-Tenant-Slug")
         }
 
         if let form = formData {
@@ -96,6 +107,9 @@ final class APIService {
         if let token = accessToken {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        if let slug = tenantSlug {
+            req.setValue(slug, forHTTPHeaderField: "X-Tenant-Slug")
+        }
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try JSONEncoder().encode(body)
@@ -115,6 +129,9 @@ final class APIService {
         req.timeoutInterval = 30
         if let token = accessToken {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        if let slug = tenantSlug {
+            req.setValue(slug, forHTTPHeaderField: "X-Tenant-Slug")
         }
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -146,6 +163,9 @@ final class APIService {
         req.timeoutInterval = 30
         if let token = accessToken {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        if let slug = tenantSlug {
+            req.setValue(slug, forHTTPHeaderField: "X-Tenant-Slug")
         }
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -274,21 +294,30 @@ final class APIService {
         let data = try await rawData(path: "/shifts/current", method: .get, body: nil)
         guard !data.isEmpty else { return nil }
 
-        // Try direct decode
-        if let shift = try? JSONDecoder().decode(Shift.self, from: data) { return shift }
+        // Helper: only accept shifts with an "open" status
+        func isOpen(_ s: Shift) -> Bool {
+            let st = s.status?.lowercased() ?? ""
+            return st == "open" || st == "active"
+        }
 
-        // Try wrapped: {"shift": {...}} or {"data": {...}}
+        // 1) Try wrapped: {"shift": {...}} or {"shift": null}
         struct Wrapped: Decodable {
             let shift: Shift?
             let data: Shift?
         }
         if let w = try? JSONDecoder().decode(Wrapped.self, from: data) {
-            if let s = w.shift ?? w.data { return s }
+            if let s = w.shift ?? w.data, isOpen(s) { return s }
+            return nil  // shift was null or closed
         }
 
-        // Try array — take first active shift
+        // 2) Try direct decode (status must be open)
+        if let shift = try? JSONDecoder().decode(Shift.self, from: data), isOpen(shift) {
+            return shift
+        }
+
+        // 3) Try array — take first open shift
         if let arr = try? JSONDecoder().decode([Shift].self, from: data) {
-            return arr.first(where: { $0.status?.lowercased() == "open" || $0.status?.lowercased() == "active" }) ?? arr.first
+            return arr.first(where: { isOpen($0) })
         }
 
         // Log raw response for diagnosis
@@ -302,16 +331,20 @@ final class APIService {
         let body = OpenShiftRequest(openingCash: openingCash)
         do {
             let data = try await rawData(path: "/shifts/open", method: .post, body: body)
-            if let shift = try? JSONDecoder().decode(Shift.self, from: data) { return shift }
+            // Backend returns {"id": "...", "opening_cash": ..., "status": "open", ...}
+            if let shift = try? JSONDecoder().decode(Shift.self, from: data),
+               shift.status?.lowercased() == "open" {
+                return shift
+            }
         } catch let err as NSError {
+            let code = err.code
             let msg = err.localizedDescription.lowercased()
-            // Server says a shift is already open — just load it
-            guard msg.contains("already") || msg.contains("open") || err.code == 409 || err.code == 422 else {
+            guard msg.contains("already") || code == 400 || code == 409 || code == 422 else {
                 throw err
             }
             print("[Shift] already open on server — fetching current")
         }
-        // Fetch the active shift (opened now or pre-existing)
+        // Fallback: fetch authoritative shift state
         if let shift = try await getCurrentShift() { return shift }
         try await Task.sleep(nanoseconds: 600_000_000)
         guard let shift = try await getCurrentShift() else {
@@ -350,5 +383,27 @@ final class APIService {
     // MARK: Staff
     func fetchStaff() async throws -> [Staff] {
         return try await request(path: "/staff")
+    }
+
+    // MARK: Split Payment
+    func splitPayOrder(_ id: String, splits: [SplitEntry]) async throws -> [String: Any] {
+        let body = SplitPaymentRequest(splits: splits)
+        return try await requestAny(path: "/orders/\(id)/split-payment", method: .post, body: body) as? [String: Any] ?? [:]
+    }
+
+    // MARK: Invoice PDF
+    func downloadInvoicePDF(_ orderId: String) async throws -> Data {
+        return try await rawData(path: "/orders/\(orderId)/invoice.pdf", method: .get, body: nil)
+    }
+
+    // MARK: Fetch Held Orders
+    func fetchHeldOrders() async throws -> [Order] {
+        return try await request(path: "/orders?status=held")
+    }
+
+    // MARK: Batch Sync (Offline Orders)
+    func syncOfflineBatch(_ orders: [OrderCreate]) async throws -> [[String: Any]] {
+        let result = try await requestAny(path: "/orders/sync-batch", method: .post, body: orders)
+        return result as? [[String: Any]] ?? []
     }
 }

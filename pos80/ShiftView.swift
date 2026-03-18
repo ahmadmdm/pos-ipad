@@ -32,6 +32,9 @@ struct ShiftView: View {
         .task {
             await loadShiftHistory()
         }
+        .onAppear {
+            Task { await appState.loadCurrentShift() }
+        }
     }
 
     // MARK: - Current Shift Panel
@@ -321,7 +324,17 @@ struct ShiftView: View {
             shiftHistory.insert(closed, at: 0)
             appState.showSuccess("Shift closed. Total sales: \((closed.totalSales ?? 0).sarFormatted)")
         } catch {
-            appState.showError(error.localizedDescription)
+            // Sync with server — shift may have been closed remotely
+            await appState.loadCurrentShift()
+            if appState.currentShift == nil {
+                // It was already closed — treat as success
+                closingCash = ""
+                shiftNotes = ""
+                appState.showSuccess("Shift closed.")
+                await loadShiftHistory()
+            } else {
+                appState.showError(error.localizedDescription)
+            }
         }
         isProcessing = false
     }

@@ -13,6 +13,8 @@ struct LoginView: View {
     @State private var logoOpacity: Double = 0
     @State private var formOpacity: Double = 0
     @State private var shakeOffset: CGFloat = 0
+    @State private var showServerConfig = false
+    @State private var serverURLDraft: String = UserDefaults.standard.string(forKey: "api_base_url") ?? "http://localhost:8000"
 
     enum LoginMode { case password, pin }
 
@@ -181,10 +183,33 @@ struct LoginView: View {
                 }
                 .frame(maxWidth: 380)
                 Spacer()
+
+                // Server config button
+                Button {
+                    serverURLDraft = UserDefaults.standard.string(forKey: "api_base_url") ?? "http://localhost:8000"
+                    showServerConfig = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "server.rack")
+                            .font(.system(size: 12))
+                        Text(UserDefaults.standard.string(forKey: "api_base_url") ?? "http://localhost:8000")
+                            .font(AppTheme.caption())
+                            .lineLimit(1)
+                    }
+                    .foregroundColor(AppTheme.textMuted)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(AppTheme.card.opacity(0.6))
+                    .cornerRadius(8)
+                }
+                .padding(.bottom, 24)
             }
             .opacity(formOpacity)
         }
         .frame(width: geo.size.width * 0.58)
+        .sheet(isPresented: $showServerConfig) {
+            ServerConfigSheet(urlDraft: $serverURLDraft)
+        }
     }
 
     // MARK: - Mode Picker
@@ -448,5 +473,68 @@ struct ThemeTextField: View {
         .cornerRadius(AppTheme.r12)
         .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
             .strokeBorder(AppTheme.border, lineWidth: 1))
+    }
+}
+
+// MARK: - Server Config Sheet
+struct ServerConfigSheet: View {
+    @Binding var urlDraft: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var saved = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Server URL", systemImage: "server.rack")
+                        .font(AppTheme.headline())
+                        .foregroundColor(AppTheme.textSecondary)
+
+                    TextField("http://192.168.x.x:8000", text: $urlDraft)
+                        .font(AppTheme.body())
+                        .keyboardType(.URL)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .background(AppTheme.card)
+                        .cornerRadius(AppTheme.r12)
+                        .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
+                            .strokeBorder(AppTheme.border, lineWidth: 1))
+
+                    Text("Enter the IP address of the machine running the backend. Example: http://192.168.1.100:8000")
+                        .font(AppTheme.caption())
+                        .foregroundColor(AppTheme.textMuted)
+                }
+
+                if saved {
+                    Label("Saved!", systemImage: "checkmark.circle.fill")
+                        .foregroundColor(AppTheme.success)
+                        .font(AppTheme.headline())
+                }
+
+                Spacer()
+            }
+            .padding(24)
+            .background(AppTheme.surface.ignoresSafeArea())
+            .navigationTitle("Server Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Save") {
+                        let url = urlDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        UserDefaults.standard.set(url, forKey: "api_base_url")
+                        saved = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { dismiss() }
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(urlDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }

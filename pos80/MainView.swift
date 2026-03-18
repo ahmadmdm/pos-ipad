@@ -4,6 +4,7 @@ import SwiftUI
 struct MainView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var posVM = POSViewModel()
+    @ObservedObject private var offlineManager = OfflineManager.shared
     @State private var showShiftAlert = false
     @State private var sidebarHovered: MainTab?
 
@@ -96,6 +97,40 @@ struct MainView: View {
 
             Divider().background(AppTheme.border).padding(.horizontal, 12)
                 .padding(.bottom, 16)
+
+            // Offline / Sync indicator
+            if !offlineManager.isOnline || offlineManager.pendingCount > 0 {
+                VStack(spacing: 4) {
+                    if !offlineManager.isOnline {
+                        Image(systemName: "wifi.slash")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(AppTheme.danger)
+                        Text("Offline")
+                            .font(AppTheme.caption(10))
+                            .foregroundColor(AppTheme.danger)
+                    }
+                    if offlineManager.pendingCount > 0 {
+                        HStack(spacing: 3) {
+                            if offlineManager.isSyncing {
+                                ProgressView()
+                                    .scaleEffect(0.6)
+                                    .tint(AppTheme.warning)
+                            } else {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(AppTheme.warning)
+                            }
+                            Text("\(offlineManager.pendingCount)")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundColor(AppTheme.warning)
+                        }
+                        Text("pending")
+                            .font(AppTheme.caption(9))
+                            .foregroundColor(AppTheme.textMuted)
+                    }
+                }
+                .padding(.bottom, 8)
+            }
 
             // Navigation items
             VStack(spacing: 4) {

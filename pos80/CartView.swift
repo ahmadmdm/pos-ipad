@@ -240,9 +240,13 @@ struct CartItemRow: View {
 
             // Info
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.product.nameEn)
+                Text(item.product.nameAr)
                     .font(AppTheme.headline(13))
                     .foregroundColor(AppTheme.textPrimary)
+                    .lineLimit(1)
+                Text(item.product.nameEn)
+                    .font(AppTheme.caption(10))
+                    .foregroundColor(AppTheme.textMuted)
                     .lineLimit(1)
                 if !item.modifierSummary.isEmpty {
                     Text(item.modifierSummary)
