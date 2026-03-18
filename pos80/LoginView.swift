@@ -2,7 +2,8 @@
 import SwiftUI
 
 struct LoginView: View {
-    @EnvironmentObject var appState: AppState
+    @Environment(AppState.self) var appState
+    private let l10n = L10n.shared
     @State private var email = ""
     @State private var password = ""
     @State private var showPassword = false
@@ -90,7 +91,7 @@ struct LoginView: View {
                             LinearGradient(colors: [.white, Color(hex: "C4B5FD")],
                                            startPoint: .leading, endPoint: .trailing))
 
-                    Text("Professional Point of Sale")
+                    Text(l10n.professionalPOS)
                         .font(AppTheme.body(16))
                         .foregroundColor(AppTheme.textSecondary)
                 }
@@ -120,7 +121,7 @@ struct LoginView: View {
             .padding(48)
             Spacer()
 
-            Text("Powered by Ampos Platform")
+            Text(l10n.poweredBy)
                 .font(AppTheme.caption())
                 .foregroundColor(AppTheme.textMuted)
                 .padding(.bottom, 32)
@@ -146,10 +147,10 @@ struct LoginView: View {
                 VStack(spacing: 32) {
                     // Header
                     VStack(spacing: 6) {
-                        Text("Welcome Back")
+                        Text(l10n.welcomeBack)
                             .font(AppTheme.title1())
                             .foregroundColor(AppTheme.textPrimary)
-                        Text("Sign in to start your shift")
+                        Text(l10n.signInSubtitle)
                             .font(AppTheme.body())
                             .foregroundColor(AppTheme.textSecondary)
                     }
@@ -222,7 +223,7 @@ struct LoginView: View {
                         appState.errorMessage = nil
                     }
                 } label: {
-                    Text(mode == .password ? "Password" : "PIN")
+                    Text(mode == .password ? l10n.passwordTab : l10n.pinTab)
                         .font(AppTheme.headline(15))
                         .foregroundColor(loginMode == mode ? .white : AppTheme.textSecondary)
                         .frame(maxWidth: .infinity)
@@ -243,7 +244,7 @@ struct LoginView: View {
             // Email
             ThemeTextField(
                 icon: "envelope.fill",
-                placeholder: "Email address",
+                placeholder: l10n.emailPlaceholder,
                 text: $email,
                 keyboardType: .emailAddress,
                 autocapitalization: .never)
@@ -254,13 +255,13 @@ struct LoginView: View {
                     .foregroundColor(AppTheme.textMuted)
                     .frame(width: 20)
                 if showPassword {
-                    TextField("Password", text: $password)
+                    TextField(l10n.password, text: $password)
                         .font(AppTheme.body())
                         .foregroundColor(AppTheme.textPrimary)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                 } else {
-                    SecureField("Password", text: $password)
+                    SecureField(l10n.password, text: $password)
                         .font(AppTheme.body())
                         .foregroundColor(AppTheme.textPrimary)
                 }
@@ -290,7 +291,7 @@ struct LoginView: View {
                     if appState.isLoading {
                         ProgressView().tint(.white)
                     } else {
-                        Text("Sign In")
+                        Text(l10n.signIn)
                     }
                 }
             }
@@ -304,7 +305,7 @@ struct LoginView: View {
         VStack(spacing: 20) {
             ThemeTextField(
                 icon: "envelope.fill",
-                placeholder: "Email address",
+                placeholder: l10n.emailPlaceholder,
                 text: $email,
                 keyboardType: .emailAddress,
                 autocapitalization: .never)
@@ -352,7 +353,7 @@ struct LoginView: View {
                     if appState.isLoading {
                         ProgressView().tint(.white)
                     } else {
-                        Text("Sign In with PIN")
+                        Text(l10n.signInWithPIN)
                     }
                 }
             }
@@ -416,12 +417,14 @@ struct LoginView: View {
     }
 
     // MARK: Features list
-    private let features: [(icon: String, label: String)] = [
-        (icon: "cart.fill", label: "Fast Order Management"),
-        (icon: "chart.bar.fill", label: "Real-Time Analytics"),
-        (icon: "printer.fill", label: "ESC/POS Printing"),
-        (icon: "lock.shield.fill", label: "ZATCA Compliant")
-    ]
+    private var features: [(icon: String, label: String)] {
+        [
+            (icon: "cart.fill", label: l10n.fastOrderMgmt),
+            (icon: "chart.bar.fill", label: l10n.realTimeAnalytics),
+            (icon: "printer.fill", label: l10n.escPrinting),
+            (icon: "lock.shield.fill", label: l10n.zatcaCompliant)
+        ]
+    }
 }
 
 // MARK: - NumButton

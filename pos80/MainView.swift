@@ -1,10 +1,12 @@
 // MainView.swift — App shell with sidebar navigation
 import SwiftUI
+import TipKit
 
 struct MainView: View {
-    @EnvironmentObject var appState: AppState
-    @StateObject private var posVM = POSViewModel()
-    @ObservedObject private var offlineManager = OfflineManager.shared
+    @Environment(AppState.self) var appState
+    @State private var posVM = POSViewModel()
+    private let offlineManager = OfflineManager.shared
+    private let l10n = L10n.shared
     @State private var showShiftAlert = false
     @State private var sidebarHovered: MainTab?
 
@@ -19,9 +21,9 @@ struct MainView: View {
                 // Content
                 ZStack {
                     switch appState.selectedTab {
-                    case .pos:      POSView().environmentObject(posVM)
+                    case .pos:      POSView().environment(posVM)
                     case .orders:   OrdersView()
-                    case .tables:   TablesView().environmentObject(posVM)
+                    case .tables:   TablesView().environment(posVM)
                     case .shift:    ShiftView()
                     case .reports:  ReportsView()
                     case .settings: SettingsView()
@@ -41,6 +43,7 @@ struct MainView: View {
         .task {
             await posVM.loadMenu()
             await posVM.loadTables()
+            ExternalDisplayManager.shared.start(posVM: posVM)
         }
     }
 
@@ -73,7 +76,7 @@ struct MainView: View {
                     Circle()
                         .fill(AppTheme.success)
                         .frame(width: 8, height: 8)
-                    Text("Shift")
+                    Text(l10n.shift_word)
                         .font(AppTheme.caption(10))
                         .foregroundColor(AppTheme.success)
                     Text("#\(String(shift.id.prefix(6)))")
@@ -87,7 +90,7 @@ struct MainView: View {
                         Circle()
                             .fill(AppTheme.warning)
                             .frame(width: 8, height: 8)
-                        Text("No Shift")
+                        Text(l10n.noShift)
                             .font(AppTheme.caption(10))
                             .foregroundColor(AppTheme.warning)
                     }
@@ -105,7 +108,7 @@ struct MainView: View {
                         Image(systemName: "wifi.slash")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(AppTheme.danger)
-                        Text("Offline")
+                        Text(l10n.offline)
                             .font(AppTheme.caption(10))
                             .foregroundColor(AppTheme.danger)
                     }
@@ -124,7 +127,7 @@ struct MainView: View {
                                 .font(.system(size: 11, weight: .bold, design: .rounded))
                                 .foregroundColor(AppTheme.warning)
                         }
-                        Text("pending")
+                        Text(l10n.pending)
                             .font(AppTheme.caption(9))
                             .foregroundColor(AppTheme.textMuted)
                     }
@@ -134,7 +137,7 @@ struct MainView: View {
 
             // Navigation items
             VStack(spacing: 4) {
-                ForEach(MainTab.allCases, id: \.self) { tab in
+                ForEach(Array(MainTab.allCases.enumerated()), id: \.element) { index, tab in
                     SidebarItem(
                         tab: tab,
                         isSelected: appState.selectedTab == tab,
@@ -144,8 +147,10 @@ struct MainView: View {
                             appState.selectedTab = tab
                         }
                     }
+                    .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                 }
             }
+            .popoverTip(KeyboardShortcutsTip())
 
             Spacer()
 
@@ -214,7 +219,7 @@ struct SidebarItem: View {
                         .background(isSelected ? AppTheme.accent.opacity(0.15) : Color.clear)
                         .cornerRadius(12)
 
-                    Text(tab.rawValue)
+                    Text(tab.localizedName)
                         .font(AppTheme.caption(10))
                         .foregroundColor(isSelected ? AppTheme.accent : AppTheme.textMuted)
                         .lineLimit(1)

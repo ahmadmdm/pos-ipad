@@ -1,9 +1,9 @@
 // POSViewModel.swift — Business logic for the main POS screen
 import SwiftUI
-import Combine
 
+@Observable
 @MainActor
-final class POSViewModel: ObservableObject {
+final class POSViewModel {
 
     private let api = APIService.shared
     private let appState = AppState.shared
@@ -11,41 +11,42 @@ final class POSViewModel: ObservableObject {
     private var invoiceStore: LocalInvoiceStore { LocalInvoiceStore.shared }
 
     // MARK: Menu Data
-    @Published var categories: [ProductCategory] = []
-    @Published var products: [Product] = []
-    @Published var selectedCategory: ProductCategory?
-    @Published var isMenuLoading = false
+    var categories: [ProductCategory] = []
+    var products: [Product] = []
+    var selectedCategory: ProductCategory?
+    var isMenuLoading = false
 
     // MARK: Cart
-    @Published var cartItems: [CartItem] = []
-    @Published var orderType: OrderType = .dineIn
-    @Published var selectedTable: RestaurantTable?
-    @Published var customerName: String = ""
-    @Published var customerPhone: String = ""
-    @Published var orderNotes: String = ""
-    @Published var discountAmount: Double = 0
+    var cartItems: [CartItem] = []
+    var orderType: OrderType = .dineIn
+    var selectedTable: RestaurantTable?
+    var customerName: String = ""
+    var customerPhone: String = ""
+    var orderNotes: String = ""
+    var discountAmount: Double = 0
 
     // MARK: Payment
-    @Published var showPaymentSheet = false
-    @Published var isProcessingPayment = false
-    @Published var lastCompletedOrder: Order?
+    var showPaymentSheet = false
+    var isProcessingPayment = false
+    var lastCompletedOrder: Order?
+    var lastCompletedOrderQR: String?
 
     // MARK: Search & Barcode
-    @Published var searchText = ""
-    @Published var showBarcodeScanner = false
+    var searchText = ""
+    var showBarcodeScanner = false
 
     // MARK: Modifier selection
-    @Published var showModifierSheet = false
-    @Published var modifierProduct: Product?
+    var showModifierSheet = false
+    var modifierProduct: Product?
 
     // MARK: Completed Orders (held)
-    @Published var heldOrders: [Order] = []
+    var heldOrders: [Order] = []
 
     // MARK: Tables
-    @Published var tables: [RestaurantTable] = []
+    var tables: [RestaurantTable] = []
 
     // MARK: Errors
-    @Published var error: String?
+    var error: String?
 
     // MARK: Computed Values
     var filteredProducts: [Product] {
@@ -66,27 +67,55 @@ final class POSViewModel: ObservableObject {
     var cartCount: Int { cartItems.reduce(0) { $0 + $1.quantity } }
     var isEmpty: Bool { cartItems.isEmpty }
 
-    // MARK: Load Menu
+    // MARK: Menu Cache Keys
+    private let cachedCategoriesKey = "cached_menu_categories"
+    private let cachedProductsKey   = "cached_menu_products"
+
+    // MARK: Load Menu (with offline fallback to local cache)
     func loadMenu() async {
         isMenuLoading = true
-        async let cats = api.fetchCategories()
-        async let prods = api.fetchProducts(availableOnly: false)
         do {
+            async let cats  = api.fetchCategories()
+            async let prods = api.fetchProducts(availableOnly: false)
             let (c, p) = try await (cats, prods)
             categories = c.sorted { $0.sortOrder < $1.sortOrder }
-            products = p
-            if selectedCategory == nil, let first = categories.first {
-                selectedCategory = first
-            }
+            products   = p
+            // Persist to cache for offline use
+            if let catData  = try? JSONEncoder().encode(c) { UserDefaults.standard.set(catData,  forKey: cachedCategoriesKey) }
+            if let prodData = try? JSONEncoder().encode(p) { UserDefaults.standard.set(prodData, forKey: cachedProductsKey) }
         } catch {
-            self.error = error.localizedDescription
+            // Offline or server error — try local cache
+            if !categories.isEmpty || !products.isEmpty {
+                // Already loaded (e.g., refresh attempt), keep current data
+            } else {
+                loadMenuFromCache()
+            }
+            if !categories.isEmpty {
+                // Cache was found, no need to show error
+            } else {
+                self.error = "No internet connection and no cached menu available."
+            }
+        }
+        if selectedCategory == nil, let first = categories.first {
+            selectedCategory = first
         }
         isMenuLoading = false
     }
 
+    private func loadMenuFromCache() {
+        if let data = UserDefaults.standard.data(forKey: cachedCategoriesKey),
+           let cached = try? JSONDecoder().decode([ProductCategory].self, from: data) {
+            categories = cached.sorted { $0.sortOrder < $1.sortOrder }
+        }
+        if let data = UserDefaults.standard.data(forKey: cachedProductsKey),
+           let cached = try? JSONDecoder().decode([Product].self, from: data) {
+            products = cached
+        }
+    }
+
     func loadTables() async {
         do { tables = try await api.fetchTables() }
-        catch { self.error = error.localizedDescription }
+        catch { /* Silently fail offline; tables are supplementary */ }
     }
 
     // MARK: Cart Operations
@@ -230,6 +259,9 @@ final class POSViewModel: ObservableObject {
     // MARK: Pay Order
     func payOrder(order: Order, method: PaymentMethod, cashTendered: Double?) async -> Bool {
         isProcessingPayment = true
+        // Capture cart values before clearCart() wipes them
+        let capturedSubtotal = cartSubtotal
+        let capturedDiscount = discountAmount
         do {
             let payment = OrderPayment(
                 paymentMethod: method.rawValue,
@@ -237,6 +269,18 @@ final class POSViewModel: ObservableObject {
                 cashTendered: cashTendered)
             let paid = try await api.payOrder(order.id, payment: payment)
             lastCompletedOrder = paid
+            // Create local ZATCA invoice so receipt can include the QR barcode
+            let vatNumber = UserDefaults.standard.string(forKey: "vat_number") ?? ""
+            let sellerAr = UserDefaults.standard.string(forKey: "seller_name_ar") ?? "AMPOS"
+            let localInv = invoiceStore.createInvoice(
+                orderLocalId: order.id,
+                orderNumber: paid.orderNumber,
+                sellerNameAr: sellerAr,
+                vatNumber: vatNumber,
+                subtotal: capturedSubtotal,
+                discountAmount: capturedDiscount
+            )
+            lastCompletedOrderQR = localInv.qrCodeBase64
             clearCart()
             appState.showSuccess("Payment successful! Order #\(paid.displayNumber ?? 0)")
             isProcessingPayment = false

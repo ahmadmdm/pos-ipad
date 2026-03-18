@@ -21,18 +21,24 @@ final class APIService {
     static let shared = APIService()
     private init() {}
 
-    // MARK: Token Storage (UserDefaults — simple; swap for Keychain in production)
+    // MARK: Token Storage (Keychain — secure; tenantSlug is non-sensitive and stays in UserDefaults)
     private let tokenKey        = "pos_access_token"
     private let refreshTokenKey = "pos_refresh_token"
     private let tenantSlugKey   = "pos_tenant_slug"
 
     var accessToken: String? {
-        get { UserDefaults.standard.string(forKey: tokenKey) }
-        set { UserDefaults.standard.set(newValue, forKey: tokenKey) }
+        get { KeychainHelper.load(forKey: tokenKey) }
+        set {
+            if let v = newValue { KeychainHelper.save(v, forKey: tokenKey) }
+            else { KeychainHelper.delete(forKey: tokenKey) }
+        }
     }
     var refreshToken: String? {
-        get { UserDefaults.standard.string(forKey: refreshTokenKey) }
-        set { UserDefaults.standard.set(newValue, forKey: refreshTokenKey) }
+        get { KeychainHelper.load(forKey: refreshTokenKey) }
+        set {
+            if let v = newValue { KeychainHelper.save(v, forKey: refreshTokenKey) }
+            else { KeychainHelper.delete(forKey: refreshTokenKey) }
+        }
     }
     var tenantSlug: String? {
         get { UserDefaults.standard.string(forKey: tenantSlugKey) }

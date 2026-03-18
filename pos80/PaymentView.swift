@@ -1,11 +1,13 @@
 // PaymentView.swift — Payment processing sheet
 import SwiftUI
+import AVFoundation
 
 struct PaymentView: View {
-    @EnvironmentObject var vm: POSViewModel
-    @EnvironmentObject var appState: AppState
+    @Environment(POSViewModel.self) var vm
+    @Environment(AppState.self) var appState
     @Environment(\.dismiss) var dismiss
-    @ObservedObject private var offlineManager = OfflineManager.shared
+    private let offlineManager = OfflineManager.shared
+    private let l10n = L10n.shared
 
     @State private var selectedMethod: PaymentMethod = .cash
     @State private var cashInput = ""
@@ -21,6 +23,7 @@ struct PaymentView: View {
     @State private var splitEntries: [SplitEntryUI] = []
     @State private var splitMethodSelection: PaymentMethod = .cash
     @State private var splitAmountInput = ""
+    @State private var synthesizer = AVSpeechSynthesizer()
 
     private var cashChange: Double {
         guard selectedMethod == .cash, let tendered = Double(cashInput) else { return 0 }
@@ -74,7 +77,7 @@ struct PaymentView: View {
                         .cornerRadius(10)
                 }
                 Spacer()
-                Text("Payment")
+                Text(l10n.payment)
                     .font(AppTheme.title2())
                     .foregroundColor(AppTheme.textPrimary)
                 Spacer()
@@ -113,7 +116,7 @@ struct PaymentView: View {
     // MARK: - Total Display
     private var totalDisplay: some View {
         VStack(spacing: 4) {
-            Text("Total Amount")
+            Text(l10n.totalAmount)
                 .font(AppTheme.body())
                 .foregroundColor(AppTheme.textSecondary)
             Text(vm.cartTotal.sarFormatted)
@@ -132,11 +135,11 @@ struct PaymentView: View {
     private var orderSummaryMini: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Order Summary")
+                Text(l10n.orderSummary)
                     .font(AppTheme.headline())
                     .foregroundColor(AppTheme.textSecondary)
                 Spacer()
-                Text("\(vm.cartCount) items")
+                Text(l10n.itemsCount(vm.cartCount))
                     .font(AppTheme.caption())
                     .foregroundColor(AppTheme.textMuted)
             }
@@ -166,11 +169,11 @@ struct PaymentView: View {
             Divider().background(AppTheme.border).padding(.horizontal, 16).padding(.top, 8)
 
             VStack(spacing: 6) {
-                SummaryRow(label: "Subtotal", value: vm.cartSubtotal.sarFormatted)
+                SummaryRow(label: l10n.subtotal, value: vm.cartSubtotal.sarFormatted)
                 if vm.discountAmount > 0 {
-                    SummaryRow(label: "Discount", value: "-\(vm.discountAmount.sarFormatted)", valueColor: AppTheme.success)
+                    SummaryRow(label: l10n.discount, value: "-\(vm.discountAmount.sarFormatted)", valueColor: AppTheme.success)
                 }
-                SummaryRow(label: "VAT (15%)", value: vm.cartVAT.sarFormatted)
+                SummaryRow(label: l10n.vat15, value: vm.cartVAT.sarFormatted)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -185,7 +188,7 @@ struct PaymentView: View {
     private var paymentMethods: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Payment Method")
+                Text(l10n.paymentMethod)
                     .font(AppTheme.headline())
                     .foregroundColor(AppTheme.textSecondary)
                 Spacer()
@@ -200,7 +203,7 @@ struct PaymentView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.branch")
                             .font(.system(size: 12, weight: .semibold))
-                        Text(isSplitMode ? "Single" : "Split")
+                        Text(isSplitMode ? l10n.single : l10n.split)
                             .font(AppTheme.caption(12))
                     }
                     .foregroundColor(isSplitMode ? .white : AppTheme.accent)
@@ -275,7 +278,7 @@ struct PaymentView: View {
                         Spacer()
                     }
                     HStack(spacing: 8) {
-                        TextField("Amount", text: $splitAmountInput)
+                        TextField(l10n.amount, text: $splitAmountInput)
                             .font(AppTheme.body(14))
                             .foregroundColor(AppTheme.textPrimary)
                             .keyboardType(.decimalPad)
@@ -286,7 +289,7 @@ struct PaymentView: View {
                         Button {
                             splitAmountInput = String(format: "%.2f", splitRemaining)
                         } label: {
-                            Text("Rest")
+                            Text(l10n.rest)
                                 .font(AppTheme.caption(12))
                                 .foregroundColor(AppTheme.accent)
                                 .padding(.horizontal, 10)
@@ -309,7 +312,7 @@ struct PaymentView: View {
 
             // Remaining label
             HStack {
-                Text("Remaining")
+                Text(l10n.remaining)
                     .font(AppTheme.caption(12))
                     .foregroundColor(AppTheme.textMuted)
                 Spacer()
@@ -324,7 +327,7 @@ struct PaymentView: View {
     // MARK: - Cash Input
     private var cashInputSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Cash Tendered")
+            Text(l10n.cashTendered)
                 .font(AppTheme.headline())
                 .foregroundColor(AppTheme.textSecondary)
 
@@ -336,7 +339,7 @@ struct PaymentView: View {
                         Button {
                             cashInput = String(format: "%.0f", amount)
                         } label: {
-                            Text(amount == 0 ? "Exact" : "\(Int(amount))")
+                            Text(amount == 0 ? l10n.exact : "\(Int(amount))")
                                 .font(AppTheme.headline(14))
                                 .foregroundColor(cashInput == String(format: "%.0f", amount) || (amount == 0 && cashInput == String(format: "%.2f", vm.cartTotal)) ? .white : AppTheme.textSecondary)
                                 .padding(.horizontal, 14)
@@ -352,7 +355,7 @@ struct PaymentView: View {
 
             ThemeTextField(
                 icon: "banknote.fill",
-                placeholder: "Amount received",
+                placeholder: l10n.amountReceived,
                 text: $cashInput,
                 keyboardType: .decimalPad)
 
@@ -360,7 +363,7 @@ struct PaymentView: View {
             if let tendered = Double(cashInput), tendered > 0 {
                 HStack {
                     VStack(alignment: .leading) {
-                        Text("Change")
+                        Text(l10n.change)
                             .font(AppTheme.caption())
                             .foregroundColor(AppTheme.textMuted)
                         Text(cashChange.sarFormatted)
@@ -369,7 +372,7 @@ struct PaymentView: View {
                     }
                     Spacer()
                     if cashChange < 0 {
-                        Text("Insufficient amount")
+                        Text(l10n.insufficientAmount)
                             .font(AppTheme.caption())
                             .foregroundColor(AppTheme.danger)
                     }
@@ -384,10 +387,10 @@ struct PaymentView: View {
     // MARK: - Customer Section
     private var customerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Customer (Optional)")
+            Text(l10n.customerOptional)
                 .font(AppTheme.headline())
                 .foregroundColor(AppTheme.textSecondary)
-            ThemeTextField(icon: "person.fill", placeholder: "Customer name", text: $customerNameInput)
+            ThemeTextField(icon: "person.fill", placeholder: l10n.customerName, text: $customerNameInput)
         }
     }
 
@@ -399,7 +402,7 @@ struct PaymentView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "wifi.slash")
                         .font(.system(size: 12))
-                    Text("Offline mode — order will sync when connected")
+                    Text(l10n.offlineMode)
                         .font(AppTheme.caption(11))
                 }
                 .foregroundColor(AppTheme.warning)
@@ -419,7 +422,7 @@ struct PaymentView: View {
                     } else {
                         Image(systemName: isSplitMode ? "arrow.branch" : selectedMethod.icon)
                             .font(.system(size: 18, weight: .semibold))
-                        Text(isSplitMode ? "Confirm Split Payment" : "Confirm \(selectedMethod.displayName) Payment")
+                        Text(isSplitMode ? l10n.confirmSplitPayment : l10n.confirmPayment(selectedMethod.displayName))
                             .font(AppTheme.headline(16))
                     }
                 }
@@ -437,7 +440,6 @@ struct PaymentView: View {
 
     // MARK: - Success Screen
     @State private var invoiceData: Data?
-    @State private var showShareSheet = false
 
     private var successScreen: some View {
         VStack(spacing: 32) {
@@ -459,7 +461,7 @@ struct PaymentView: View {
             .opacity(successOpacity)
 
             VStack(spacing: 8) {
-                Text("Payment Successful!")
+                Text(l10n.paymentSuccessful)
                     .font(AppTheme.title1())
                     .foregroundColor(AppTheme.textPrimary)
                 if let order = placedOrder {
@@ -488,27 +490,43 @@ struct PaymentView: View {
             VStack(spacing: 12) {
                 // Download Invoice button
                 if let order = placedOrder {
-                    Button {
-                        Task {
-                            invoiceData = await vm.downloadInvoicePDF(orderId: order.id)
-                            if invoiceData != nil {
-                                showShareSheet = true
+                    if let data = invoiceData {
+                        ShareLink(
+                            item: PDFFile(data: data),
+                            preview: SharePreview("Invoice.pdf", image: Image(systemName: "doc.text.fill"))
+                        ) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.system(size: 16, weight: .semibold))
+                                Text(l10n.downloadInvoice)
+                                    .font(AppTheme.headline(14))
                             }
+                            .foregroundColor(AppTheme.accent)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(AppTheme.accent.opacity(0.12))
+                            .cornerRadius(AppTheme.r12)
                         }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "arrow.down.doc.fill")
-                                .font(.system(size: 16, weight: .semibold))
-                            Text("Download Invoice")
-                                .font(AppTheme.headline(14))
+                    } else {
+                        Button {
+                            Task {
+                                invoiceData = await vm.downloadInvoicePDF(orderId: order.id)
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.down.doc.fill")
+                                    .font(.system(size: 16, weight: .semibold))
+                                Text(l10n.downloadInvoice)
+                                    .font(AppTheme.headline(14))
+                            }
+                            .foregroundColor(AppTheme.accent)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(AppTheme.accent.opacity(0.12))
+                            .cornerRadius(AppTheme.r12)
                         }
-                        .foregroundColor(AppTheme.accent)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                        .background(AppTheme.accent.opacity(0.12))
-                        .cornerRadius(AppTheme.r12)
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
 
                 // Print Receipt button
@@ -519,7 +537,7 @@ struct PaymentView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "printer.fill")
                                 .font(.system(size: 16, weight: .semibold))
-                            Text("Print Receipt")
+                            Text(l10n.printReceipt)
                                 .font(AppTheme.headline(14))
                         }
                         .foregroundColor(AppTheme.success)
@@ -534,7 +552,7 @@ struct PaymentView: View {
                 Button {
                     dismiss()
                 } label: {
-                    Text("New Order")
+                    Text(l10n.newOrder)
                         .font(AppTheme.headline())
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -547,11 +565,6 @@ struct PaymentView: View {
             .padding(.horizontal, 32)
             .padding(.bottom, 40)
             .opacity(successOpacity)
-        }
-        .sheet(isPresented: $showShareSheet) {
-            if let data = invoiceData {
-                ShareSheet(items: [data])
-            }
         }
     }
 
@@ -570,6 +583,9 @@ struct PaymentView: View {
                 successOpacity = 1
             }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
+            let announcement = AVSpeechUtterance(string: "Payment successful. Order queued offline.")
+            announcement.rate = AVSpeechUtteranceDefaultSpeechRate
+            synthesizer.speak(announcement)
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { dismiss() }
             return
         }
@@ -597,6 +613,18 @@ struct PaymentView: View {
                 successOpacity = 1
             }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
+
+            // Announce payment via speech
+            let orderLabel = placedOrder.flatMap { $0.orderNumber } ?? ""
+            let cashChange = (Double(cashInput) ?? 0) - vm.cartTotal
+            var speech = "Payment successful"
+            if !orderLabel.isEmpty { speech += ". Order \(orderLabel)" }
+            if selectedMethod == .cash && cashChange > 0.01 {
+                speech += ". Change \(String(format: "%.2f", cashChange)) riyals"
+            }
+            let utterance = AVSpeechUtterance(string: speech)
+            utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+            synthesizer.speak(utterance)
 
             // Auto-print receipt
             Task { await autoPrintReceipt(order: placedOrder!) }
@@ -659,7 +687,7 @@ struct PaymentView: View {
             paymentMethod: (isSplitMode ? "Split" : selectedMethod.displayName),
             amountPaid: selectedMethod == .cash ? (Double(cashInput) ?? vm.cartTotal) : vm.cartTotal,
             change: cashChange > 0 ? cashChange : 0,
-            qrData: nil,
+            qrData: vm.lastCompletedOrderQR,
             footer: UserDefaults.standard.string(forKey: "receipt_footer")
         )
         _ = await ReceiptPrinter.shared.printReceipt(receipt: receipt, ip: ip, port: port)

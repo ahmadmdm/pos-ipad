@@ -4,7 +4,6 @@
 // The full UBL XML signing is deferred to the backend on sync.
 
 import Foundation
-import Combine
 import CryptoKit
 
 /// ZATCA Tag-Length-Value encoder for QR code generation (Phase 2 simplified)
@@ -144,14 +143,15 @@ struct LocalInvoice: Codable, Identifiable {
 }
 
 // MARK: - Local Invoice Store
+@Observable
 @MainActor
-final class LocalInvoiceStore: ObservableObject {
+final class LocalInvoiceStore {
 
     static let shared = LocalInvoiceStore()
     private let storageKey = "local_invoices"
     private let lastHashKey = "zatca_last_local_hash"
 
-    @Published var invoices: [LocalInvoice] = []
+    var invoices: [LocalInvoice] = []
 
     private init() { load() }
 

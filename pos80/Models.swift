@@ -524,57 +524,81 @@ struct CloseShiftRequest: Codable {
 
 // MARK: - Reports / Dashboard
 struct DashboardSummary: Codable {
-    let totalRevenue: Double?
-    let totalOrders: Int?
-    let averageOrderValue: Double?
-    let topProducts: [TopProduct]?
-    let revenueByDay: [RevenueDay]?
-    let paymentBreakdown: PaymentBreakdown?
+    let totalRevenue: Double
+    let totalOrders: Int
+    let avgOrderValue: Double
+    let totalVat: Double
+    let totalDiscounts: Double
+    let ordersToday: Int
+    let revenueToday: Double
+    let activeStaff: Int
+    let avgOrderTimeMin: Double
+    let hourlyTrend: [HourlyTrend]
+    let topProducts: [DashboardTopProduct]
+    let revenueByOrderType: [String: Double]
+    let revenueByPaymentMethod: [String: Double]
 
     enum CodingKeys: String, CodingKey {
         case totalRevenue = "total_revenue"
         case totalOrders = "total_orders"
-        case averageOrderValue = "average_order_value"
+        case avgOrderValue = "avg_order_value"
+        case totalVat = "total_vat"
+        case totalDiscounts = "total_discounts"
+        case ordersToday = "orders_today"
+        case revenueToday = "revenue_today"
+        case activeStaff = "active_staff"
+        case avgOrderTimeMin = "avg_order_time_min"
+        case hourlyTrend = "hourly_trend"
         case topProducts = "top_products"
-        case revenueByDay = "revenue_by_day"
-        case paymentBreakdown = "payment_breakdown"
+        case revenueByOrderType = "revenue_by_order_type"
+        case revenueByPaymentMethod = "revenue_by_payment_method"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        totalRevenue = (try? c.decode(Double.self, forKey: .totalRevenue)) ?? 0
+        totalOrders = (try? c.decode(Int.self, forKey: .totalOrders)) ?? 0
+        avgOrderValue = (try? c.decode(Double.self, forKey: .avgOrderValue)) ?? 0
+        totalVat = (try? c.decode(Double.self, forKey: .totalVat)) ?? 0
+        totalDiscounts = (try? c.decode(Double.self, forKey: .totalDiscounts)) ?? 0
+        ordersToday = (try? c.decode(Int.self, forKey: .ordersToday)) ?? 0
+        revenueToday = (try? c.decode(Double.self, forKey: .revenueToday)) ?? 0
+        activeStaff = (try? c.decode(Int.self, forKey: .activeStaff)) ?? 0
+        avgOrderTimeMin = (try? c.decode(Double.self, forKey: .avgOrderTimeMin)) ?? 0
+        hourlyTrend = (try? c.decode([HourlyTrend].self, forKey: .hourlyTrend)) ?? []
+        topProducts = (try? c.decode([DashboardTopProduct].self, forKey: .topProducts)) ?? []
+        revenueByOrderType = (try? c.decode([String: Double].self, forKey: .revenueByOrderType)) ?? [:]
+        revenueByPaymentMethod = (try? c.decode([String: Double].self, forKey: .revenueByPaymentMethod)) ?? [:]
     }
 }
 
+struct HourlyTrend: Codable, Identifiable {
+    var id: String { hour }
+    let hour: String
+    let orders: Int
+    let revenue: Double
+}
+
+/// Lightweight top-product from the dashboard endpoint ({name, count})
+struct DashboardTopProduct: Codable, Identifiable {
+    var id: String { name }
+    let name: String
+    let count: Int
+}
+
+/// Full top-product from /reports/top-products endpoint
 struct TopProduct: Codable, Identifiable {
-    var id: String { productId }
-    let productId: String
-    let productNameEn: String
-    let productNameAr: String
-    let totalQuantity: Int
+    var id: String { nameEn }
+    let nameEn: String
+    let nameAr: String
+    let totalQty: Int
     let totalRevenue: Double
 
     enum CodingKeys: String, CodingKey {
-        case productId = "product_id"
-        case productNameEn = "product_name_en"
-        case productNameAr = "product_name_ar"
-        case totalQuantity = "total_quantity"
+        case nameEn = "name_en"
+        case nameAr = "name_ar"
+        case totalQty = "total_qty"
         case totalRevenue = "total_revenue"
-    }
-}
-
-struct RevenueDay: Codable, Identifiable {
-    var id: String { date }
-    let date: String
-    let revenue: Double
-    let orders: Int
-}
-
-struct PaymentBreakdown: Codable {
-    let cash: Double?
-    let card: Double?
-    let applePay: Double?
-    let mada: Double?
-
-    enum CodingKeys: String, CodingKey {
-        case cash, card
-        case applePay = "apple_pay"
-        case mada
     }
 }
 

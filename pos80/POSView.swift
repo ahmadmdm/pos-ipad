@@ -2,8 +2,9 @@
 import SwiftUI
 
 struct POSView: View {
-    @EnvironmentObject var vm: POSViewModel
-    @EnvironmentObject var appState: AppState
+    @Environment(POSViewModel.self) var vm
+    @Environment(AppState.self) var appState
+    private let l10n = L10n.shared
     @State private var showOrderTypeSheet = false
     @State private var showTablePicker = false
     @State private var showDiscountSheet = false
@@ -14,6 +15,7 @@ struct POSView: View {
     @Namespace private var animation
 
     var body: some View {
+        @Bindable var vm = vm
         HStack(spacing: 0) {
             // Left: Products
             productPanel
@@ -27,7 +29,7 @@ struct POSView: View {
                 showDiscount: { showDiscountSheet = true },
                 showNote: { showNoteSheet = true }
             )
-            .environmentObject(vm)
+            .environment(vm)
             .frame(width: 360)
             .background(AppTheme.surface)
             .overlay(alignment: .leading) {
@@ -37,8 +39,8 @@ struct POSView: View {
         .background(AppTheme.bg)
         .sheet(isPresented: $vm.showPaymentSheet) {
             PaymentView()
-                .environmentObject(vm)
-                .environmentObject(appState)
+                .environment(vm)
+                .environment(appState)
         }
         .sheet(isPresented: $showOrderTypeSheet) { orderTypeSheet }
         .sheet(isPresented: $showTablePicker) { tablePicker }
@@ -47,7 +49,7 @@ struct POSView: View {
         .sheet(isPresented: $showHeldOrders) { heldOrdersSheet }
         .sheet(isPresented: $vm.showBarcodeScanner) {
             BarcodeScannerSheet()
-                .environmentObject(vm)
+                .environment(vm)
         }
         .sheet(isPresented: $vm.showModifierSheet) {
             if let product = vm.modifierProduct {
@@ -58,13 +60,25 @@ struct POSView: View {
                 }
             }
         }
-        .alert("Error", isPresented: Binding(
+        .alert(l10n.error, isPresented: Binding(
             get: { vm.error != nil },
             set: { if !$0 { vm.error = nil } }
         )) {
-            Button("OK", role: .cancel) { vm.error = nil }
+            Button(l10n.ok, role: .cancel) { vm.error = nil }
         } message: {
             Text(vm.error ?? "")
+        }
+        // iPad Menu Bar commands
+        .onReceive(NotificationCenter.default.publisher(for: .amposMenuNewOrder)) { _ in
+            vm.clearCart()
+            appState.selectedTab = .pos
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .amposMenuClearCart)) { _ in
+            vm.clearCart()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .amposMenuPrintReceipt)) { _ in
+            guard vm.lastCompletedOrder != nil else { return }
+            vm.showPaymentSheet = true
         }
     }
 
@@ -88,13 +102,14 @@ struct POSView: View {
 
     // MARK: - Top Bar
     private var topBar: some View {
-        HStack(spacing: 12) {
+        @Bindable var vm = vm
+        return HStack(spacing: 12) {
             // Search
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(AppTheme.textMuted)
                     .font(.system(size: 15, weight: .medium))
-                TextField("Search products or scan barcode...", text: $vm.searchText)
+                TextField(l10n.searchProducts, text: $vm.searchText)
                     .font(AppTheme.body())
                     .foregroundColor(AppTheme.textPrimary)
                 if !vm.searchText.isEmpty {
@@ -166,7 +181,7 @@ struct POSView: View {
             HStack(spacing: 8) {
                 // All tab
                 CategoryTab(
-                    label: "All",
+                    label: l10n.allCategories,
                     icon: "square.grid.2x2.fill",
                     isSelected: vm.selectedCategory == nil
                 ) {
@@ -207,6 +222,27 @@ struct POSView: View {
                     ProductCard(product: product) {
                         handleProductTap(product)
                     }
+                    .draggable(product.id)
+                    .contextMenu {
+                        Button {
+                            handleProductTap(product)
+                        } label: {
+                            Label("Add to Cart", systemImage: "cart.badge.plus")
+                        }
+                        Button {
+                            UIPasteboard.general.string = product.price.sarFormatted
+                        } label: {
+                            Label("Copy Price", systemImage: "doc.on.doc")
+                        }
+                        if !(product.modifiers?.isEmpty ?? true) {
+                            Button {
+                                vm.modifierProduct = product
+                                vm.showModifierSheet = true
+                            } label: {
+                                Label("Customize", systemImage: "slider.horizontal.3")
+                            }
+                        }
+                    }
                 }
             }
             .padding(20)
@@ -243,7 +279,7 @@ struct POSView: View {
             Image(systemName: vm.searchText.isEmpty ? "tray.fill" : "magnifyingglass")
                 .font(.system(size: 48))
                 .foregroundColor(AppTheme.textMuted)
-            Text(vm.searchText.isEmpty ? "No products available" : "No results for \"\(vm.searchText)\"")
+            Text(vm.searchText.isEmpty ? l10n.noProductsAvailable : l10n.noResults(vm.searchText))
                 .font(AppTheme.headline())
                 .foregroundColor(AppTheme.textSecondary)
             Spacer()
@@ -252,7 +288,7 @@ struct POSView: View {
 
     // MARK: - Order Type Sheet
     private var orderTypeSheet: some View {
-        SheetContainer(title: "Order Type") {
+        SheetContainer(title: l10n.orderType) {
             VStack(spacing: 12) {
                 ForEach(OrderType.allCases, id: \.self) { type in
                     Button {
@@ -293,13 +329,13 @@ struct POSView: View {
 
     // MARK: - Table Picker Sheet
     private var tablePicker: some View {
-        SheetContainer(title: "Select Table") {
+        SheetContainer(title: l10n.selectTable) {
             if vm.tables.isEmpty {
                 VStack(spacing: 12) {
                     Image(systemName: "table.furniture.fill")
                         .font(.system(size: 40))
                         .foregroundColor(AppTheme.textMuted)
-                    Text("No tables configured")
+                    Text(l10n.noTablesConfigured)
                         .font(AppTheme.headline())
                         .foregroundColor(AppTheme.textSecondary)
                 }
@@ -316,7 +352,7 @@ struct POSView: View {
                             Image(systemName: "xmark.circle")
                                 .font(.system(size: 24))
                                 .foregroundColor(vm.selectedTable == nil ? .white : AppTheme.textSecondary)
-                            Text("None")
+                            Text(l10n.none)
                                 .font(AppTheme.headline(14))
                                 .foregroundColor(vm.selectedTable == nil ? .white : AppTheme.textSecondary)
                         }
@@ -366,13 +402,13 @@ struct POSView: View {
 
     // MARK: - Discount Sheet
     private var discountSheet: some View {
-        SheetContainer(title: "Apply Discount") {
+        SheetContainer(title: l10n.applyDiscount) {
             VStack(spacing: 20) {
-                Text("Cart Subtotal: \(vm.cartSubtotal.sarFormatted)")
+                Text("\(l10n.cartSubtotalPrefix) \(vm.cartSubtotal.sarFormatted)")
                     .font(AppTheme.headline())
                     .foregroundColor(AppTheme.textSecondary)
 
-                ThemeTextField(icon: "tag.fill", placeholder: "Discount amount (SAR)", text: $discountInput, keyboardType: .decimalPad)
+                ThemeTextField(icon: "tag.fill", placeholder: l10n.discountAmountSAR, text: $discountInput, keyboardType: .decimalPad)
 
                 Button {
                     if let amount = Double(discountInput) {
@@ -381,7 +417,7 @@ struct POSView: View {
                         discountInput = ""
                     }
                 } label: {
-                    Text("Apply Discount")
+                    Text(l10n.applyDiscount)
                 }
                 .buttonStyle(PrimaryButtonStyle(isFullWidth: true))
                 .disabled(discountInput.isEmpty)
@@ -391,7 +427,7 @@ struct POSView: View {
                         vm.discountAmount = 0
                         showDiscountSheet = false
                     } label: {
-                        Text("Remove Discount")
+                        Text(l10n.removeDiscount)
                     }
                     .buttonStyle(DangerButtonStyle())
                 }
@@ -402,7 +438,8 @@ struct POSView: View {
 
     // MARK: - Note Sheet
     private var noteSheet: some View {
-        SheetContainer(title: "Order Notes") {
+        @Bindable var vm = vm
+        return SheetContainer(title: l10n.orderNotes) {
             VStack(spacing: 16) {
                 TextEditor(text: $vm.orderNotes)
                     .font(AppTheme.body())
@@ -417,7 +454,7 @@ struct POSView: View {
                 Button {
                     showNoteSheet = false
                 } label: {
-                    Text("Save Notes")
+                    Text(l10n.saveNotes)
                 }
                 .buttonStyle(PrimaryButtonStyle(isFullWidth: true))
             }
@@ -427,16 +464,16 @@ struct POSView: View {
 
     // MARK: - Held Orders Sheet
     private var heldOrdersSheet: some View {
-        SheetContainer(title: "Held Orders") {
+        SheetContainer(title: l10n.heldOrders) {
             if vm.heldOrders.isEmpty {
                 VStack(spacing: 16) {
                     Image(systemName: "clock")
                         .font(.system(size: 36))
                         .foregroundColor(AppTheme.textMuted)
-                    Text("No held orders")
+                    Text(l10n.noHeldOrders)
                         .font(AppTheme.headline())
                         .foregroundColor(AppTheme.textSecondary)
-                    Text("Hold an order from the cart to save it for later")
+                    Text(l10n.holdSubtitle)
                         .font(AppTheme.caption())
                         .foregroundColor(AppTheme.textMuted)
                         .multilineTextAlignment(.center)
@@ -462,7 +499,7 @@ struct POSView: View {
                                             .font(AppTheme.caption(12))
                                             .foregroundColor(AppTheme.textMuted)
                                     }
-                                    Text("\(order.items?.count ?? 0) items")
+                                    Text(l10n.itemsCount(order.items?.count ?? 0))
                                         .font(AppTheme.caption(11))
                                         .foregroundColor(AppTheme.textMuted)
                                 }
@@ -481,7 +518,7 @@ struct POSView: View {
                                         }
                                     }
                                 } label: {
-                                    Text("Restore")
+                                    Text(l10n.restore)
                                         .font(AppTheme.caption(12))
                                         .foregroundColor(.white)
                                         .padding(.horizontal, 12)

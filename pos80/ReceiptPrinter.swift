@@ -224,10 +224,14 @@ final class ReceiptPrinter {
             let host = NWEndpoint.Host(ip)
             let nwPort = NWEndpoint.Port(rawValue: port)!
             let connection = NWConnection(host: host, port: nwPort, using: .tcp)
+            let timeoutItem = DispatchWorkItem { [weak connection] in
+                connection?.cancel()
+            }
 
             func complete(_ value: Bool) {
                 guard !resumed else { return }
                 resumed = true
+                timeoutItem.cancel()
                 continuation.resume(returning: value)
             }
 
@@ -235,10 +239,12 @@ final class ReceiptPrinter {
                 switch state {
                 case .ready:
                     connection.send(content: data, completion: .contentProcessed { error in
-                        connection.cancel()
                         complete(error == nil)
+                        connection.cancel()
                     })
-                case .failed, .cancelled:
+                case .failed:
+                    complete(false)
+                case .cancelled:
                     complete(false)
                 default:
                     break
@@ -247,10 +253,7 @@ final class ReceiptPrinter {
 
             connection.start(queue: .global(qos: .userInitiated))
 
-            DispatchQueue.global().asyncAfter(deadline: .now() + 10) {
-                connection.cancel()
-                complete(false)
-            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: timeoutItem)
         }
     }
 

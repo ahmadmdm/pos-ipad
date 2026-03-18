@@ -1,9 +1,11 @@
 // OrdersView.swift — Orders list and detail view
 import SwiftUI
 import QuickLook
+import TipKit
 
 struct OrdersView: View {
-    @EnvironmentObject var appState: AppState
+    @Environment(AppState.self) var appState
+    private let l10n = L10n.shared
     @State private var orders: [Order] = []
     @State private var isLoading = false
     @State private var selectedStatus: String? = nil
@@ -15,10 +17,10 @@ struct OrdersView: View {
 
     private let api = APIService.shared
 
-    private let statusFilters: [(label: String, value: String?)] = [
-        ("All", nil), ("Received", "received"), ("Preparing", "preparing"),
-        ("Ready", "ready"), ("Paid", "paid"), ("Cancelled", "cancelled")
-    ]
+    private var statusFilters: [(label: String, value: String?)] {
+        [(l10n.allStatus, nil), (l10n.received, "received"), (l10n.preparing, "preparing"),
+         (l10n.ready, "ready"), (l10n.paid, "paid"), (l10n.cancelled, "cancelled")]
+    }
 
     private var filteredOrders: [Order] {
         var base = orders
@@ -79,6 +81,15 @@ struct OrdersView: View {
             }
         }
         .task { await loadOrders() }
+        .task(id: appState.spotlightOrderId) {
+            guard let targetId = appState.spotlightOrderId else { return }
+            // Wait for orders to load if needed
+            if orders.isEmpty { await loadOrders() }
+            if let match = orders.first(where: { $0.id == targetId }) {
+                withAnimation { selectedOrder = match }
+            }
+            appState.spotlightOrderId = nil
+        }
         .sheet(isPresented: $showPDFPreview) {
             if let data = pdfData {
                 PDFPreviewSheet(data: data)
@@ -92,7 +103,9 @@ struct OrdersView: View {
             let data = try await api.downloadInvoicePDF(order.id)
             pdfData = data
             showPDFPreview = true
-        } catch {}
+        } catch {
+            appState.toast = ToastMessage(type: .error, text: error.localizedDescription)
+        }
         isDownloadingPDF = false
     }
 
@@ -101,10 +114,10 @@ struct OrdersView: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Orders")
+                    Text(l10n.orders)
                         .font(AppTheme.title2())
                         .foregroundColor(AppTheme.textPrimary)
-                    Text("\(filteredOrders.count) orders")
+                    Text(l10n.ordersCount(filteredOrders.count))
                         .font(AppTheme.caption())
                         .foregroundColor(AppTheme.textMuted)
                 }
@@ -126,7 +139,7 @@ struct OrdersView: View {
             .padding(.vertical, 16)
 
             // Search
-            ThemeTextField(icon: "magnifyingglass", placeholder: "Search orders...", text: $searchText)
+            ThemeTextField(icon: "magnifyingglass", placeholder: l10n.searchOrders, text: $searchText)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
         }
@@ -173,6 +186,26 @@ struct OrdersView: View {
 
                         Task { await downloadPDF(for: order) }
                     }
+                    .contextMenu {
+                        Button {
+                            withAnimation { selectedOrder = order }
+                        } label: {
+                            Label("View Details", systemImage: "doc.text.magnifyingglass")
+                        }
+                        if order.status == "paid" {
+                            Button {
+                                Task { await downloadPDF(for: order) }
+                            } label: {
+                                Label("Download Invoice", systemImage: "arrow.down.doc")
+                            }
+                        }
+                        Button {
+                            UIPasteboard.general.string = order.orderNumber ?? order.id
+                        } label: {
+                            Label("Copy Order #", systemImage: "doc.on.doc")
+                        }
+                        .popoverTip(OrderContextMenuTip())
+                    }
                 }
             }
         }
@@ -184,7 +217,7 @@ struct OrdersView: View {
             Image(systemName: "tray.fill")
                 .font(.system(size: 40))
                 .foregroundColor(AppTheme.textMuted)
-            Text("No orders found")
+            Text(l10n.noOrdersFound)
                 .font(AppTheme.headline())
                 .foregroundColor(AppTheme.textSecondary)
             Spacer()
@@ -195,8 +228,9 @@ struct OrdersView: View {
         isLoading = true
         do {
             orders = try await api.fetchOrders()
+            SpotlightManager.shared.indexOrders(orders)
         } catch {
-            // Silently handle
+            appState.toast = ToastMessage(type: .error, text: error.localizedDescription)
         }
         isLoading = false
     }
@@ -328,12 +362,14 @@ struct OrderDetailView: View {
     let order: Order
     let onStatusChange: (Order) -> Void
 
+    @Environment(AppState.self) var appState
     @State private var isUpdating = false
     @State private var showPaySheet = false
     @State private var isDownloadingPDF = false
     @State private var detailPdfData: Data?
     @State private var showPDFPreview = false
     private let api = APIService.shared
+    private let l10n = L10n.shared
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -367,7 +403,7 @@ struct OrderDetailView: View {
                                     } else {
                                         Image(systemName: "doc.text.fill")
                                     }
-                                    Text("Invoice PDF")
+                                    Text(l10n.invoicePDF)
                                 }
                                 .font(AppTheme.headline(13))
                                 .foregroundColor(AppTheme.accent)
@@ -401,7 +437,7 @@ struct OrderDetailView: View {
 
                 // Items
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Items").font(AppTheme.headline()).foregroundColor(AppTheme.textSecondary)
+                    Text(l10n.items_label).font(AppTheme.headline()).foregroundColor(AppTheme.textSecondary)
                     ForEach(order.items ?? []) { item in
                         HStack(spacing: 12) {
                             Text("×\(item.quantity)")
@@ -424,13 +460,13 @@ struct OrderDetailView: View {
 
                 // Totals
                 VStack(spacing: 8) {
-                    SummaryRow(label: "Subtotal", value: (order.subtotal ?? 0).sarFormatted)
+                    SummaryRow(label: l10n.subtotal, value: (order.subtotal ?? 0).sarFormatted)
                     if let disc = order.discountAmount, disc > 0 {
-                        SummaryRow(label: "Discount", value: "-\(disc.sarFormatted)", valueColor: AppTheme.success)
+                        SummaryRow(label: l10n.discount, value: "-\(disc.sarFormatted)", valueColor: AppTheme.success)
                     }
-                    SummaryRow(label: "VAT", value: (order.vatAmount ?? 0).sarFormatted)
+                    SummaryRow(label: l10n.vat, value: (order.vatAmount ?? 0).sarFormatted)
                     Divider().background(AppTheme.border)
-                    SummaryRow(label: "Total", value: order.totalSafe.sarFormatted,
+                    SummaryRow(label: l10n.total, value: order.totalSafe.sarFormatted,
                                labelFont: AppTheme.headline(), valueFont: AppTheme.title2(), valueColor: AppTheme.accent)
                 }
                 .padding(16)
@@ -449,30 +485,36 @@ struct OrderDetailView: View {
                 PDFPreviewSheet(data: data)
             }
         }
+        // Handoff — advertise this order so it can be continued on another device
+        .userActivity("com.ampos.pos80.viewOrder") { activity in
+            activity.title = "Order \(order.orderNumber ?? "#\(order.displayNumber ?? 0)")"
+            activity.userInfo = ["orderId": order.id]
+            activity.isEligibleForHandoff = true
+        }
     }
 
     private var statusActions: some View {
         VStack(spacing: 12) {
-            Text("Actions").font(AppTheme.headline()).foregroundColor(AppTheme.textSecondary)
+            Text(l10n.actions).font(AppTheme.headline()).foregroundColor(AppTheme.textSecondary)
 
             if order.status == "received" || order.status == "draft" {
-                StatusActionButton(label: "Mark Preparing", icon: "flame.fill", color: AppTheme.warning) {
+                StatusActionButton(label: l10n.markPreparing, icon: "flame.fill", color: AppTheme.warning) {
                     await updateStatus("preparing")
                 }
             }
             if order.status == "preparing" {
-                StatusActionButton(label: "Mark Ready", icon: "checkmark.seal.fill", color: AppTheme.success) {
+                StatusActionButton(label: l10n.markReady, icon: "checkmark.seal.fill", color: AppTheme.success) {
                     await updateStatus("ready")
                 }
             }
             if order.status == "ready" {
-                StatusActionButton(label: "Mark Served", icon: "fork.knife", color: AppTheme.accent) {
+                StatusActionButton(label: l10n.markServed, icon: "fork.knife", color: AppTheme.accent) {
                     await updateStatus("served")
                 }
             }
 
             // Cancel
-            StatusActionButton(label: "Cancel Order", icon: "xmark.circle.fill", color: AppTheme.danger) {
+            StatusActionButton(label: l10n.cancelOrder, icon: "xmark.circle.fill", color: AppTheme.danger) {
                 await updateStatus("cancelled")
             }
         }
@@ -484,7 +526,9 @@ struct OrderDetailView: View {
             let data = try await api.downloadInvoicePDF(order.id)
             detailPdfData = data
             showPDFPreview = true
-        } catch {}
+        } catch {
+            appState.toast = ToastMessage(type: .error, text: error.localizedDescription)
+        }
         isDownloadingPDF = false
     }
 
@@ -497,7 +541,9 @@ struct OrderDetailView: View {
                 method: .patch,
                 body: StatusUpdate(status: newStatus))
             onStatusChange(updated)
-        } catch {}
+        } catch {
+            appState.toast = ToastMessage(type: .error, text: error.localizedDescription)
+        }
         isUpdating = false
     }
 }
@@ -565,16 +611,12 @@ struct PDFPreviewSheet: View {
                         Button("Close") { dismiss() }
                     }
                     ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            let tmp = FileManager.default.temporaryDirectory
-                                .appendingPathComponent("Invoice.pdf")
-                            try? data.write(to: tmp)
-                            let ac = UIActivityViewController(activityItems: [tmp], applicationActivities: nil)
-                            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                               let vc = scene.windows.first?.rootViewController {
-                                vc.present(ac, animated: true)
-                            }
-                        } label: { Image(systemName: "square.and.arrow.up") }
+                        ShareLink(
+                            item: PDFFile(data: data),
+                            preview: SharePreview("Invoice.pdf", image: Image(systemName: "doc.text.fill"))
+                        ) {
+                            Image(systemName: "square.and.arrow.up")
+                        }
                     }
                 }
         }
@@ -611,4 +653,18 @@ struct PDFViewerController: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ vc: UIViewController, context: Context) {}
+}
+
+// MARK: - PDF Transferable for ShareLink
+// ShareLink requires a Transferable item. This wraps PDF Data and exports
+// it as a named file — no UIActivityViewController or LaunchServices lookup needed.
+import UniformTypeIdentifiers
+
+struct PDFFile: Transferable {
+    let data: Data
+
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(contentType: .pdf) { $0.data }
+            importing: { PDFFile(data: $0) }
+    }
 }

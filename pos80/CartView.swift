@@ -1,16 +1,21 @@
 // CartView.swift — Cart panel and PaymentView sheet
 import SwiftUI
+import TipKit
 
 // MARK: - Cart View
 struct CartView: View {
-    @EnvironmentObject var vm: POSViewModel
-    @EnvironmentObject var appState: AppState
+    @Environment(POSViewModel.self) var vm
+    @Environment(AppState.self) var appState
+    private let offlineManager = OfflineManager.shared
+    private let l10n = L10n.shared
 
     let showPayment: () -> Void
     let showOrderType: () -> Void
     let showTablePicker: () -> Void
     let showDiscount: () -> Void
     let showNote: () -> Void
+
+    @Environment(\.undoManager) private var undoManager
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,7 +40,7 @@ struct CartView: View {
     private var cartHeader: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Order")
+                Text(l10n.order)
                     .font(AppTheme.title2())
                     .foregroundColor(AppTheme.textPrimary)
                 HStack(spacing: 8) {
@@ -59,7 +64,7 @@ struct CartView: View {
                         HStack(spacing: 4) {
                             Image(systemName: "table.furniture.fill")
                                 .font(.system(size: 11, weight: .semibold))
-                            Text(vm.selectedTable != nil ? "T\(vm.selectedTable!.number)" : "No Table")
+                            Text(vm.selectedTable != nil ? "T\(vm.selectedTable!.number)" : l10n.noTable)
                                 .font(AppTheme.caption())
                         }
                         .foregroundColor(vm.selectedTable != nil ? AppTheme.success : AppTheme.textMuted)
@@ -108,14 +113,22 @@ struct CartView: View {
                     .font(.system(size: 40))
                     .foregroundColor(AppTheme.accent.opacity(0.5))
             }
-            Text("Cart is empty")
+            Text(l10n.cartEmpty)
                 .font(AppTheme.headline())
                 .foregroundColor(AppTheme.textSecondary)
-            Text("Tap a product to add it")
+            Text(l10n.tapToAdd)
                 .font(AppTheme.body())
                 .foregroundColor(AppTheme.textMuted)
             Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .dropDestination(for: String.self) { ids, _ in
+            guard let id = ids.first,
+                  let product = vm.products.first(where: { $0.id == id }) else { return false }
+            vm.addToCart(product: product)
+            return true
+        }
+        .popoverTip(DragToCartTip())
     }
 
     // MARK: - Items List
@@ -126,9 +139,20 @@ struct CartView: View {
                     CartItemRow(item: item,
                                 onIncrement: { vm.incrementItem(item) },
                                 onDecrement: { vm.decrementItem(item) },
-                                onRemove: { withAnimation { vm.removeItem(item) } })
+                                onRemove: {
+                                    undoManager?.registerUndo(withTarget: vm) { v in
+                                        v.addToCart(product: item.product)
+                                    }
+                                    withAnimation { vm.removeItem(item) }
+                                })
                 }
             }
+        }
+        .dropDestination(for: String.self) { ids, _ in
+            guard let id = ids.first,
+                  let product = vm.products.first(where: { $0.id == id }) else { return false }
+            vm.addToCart(product: product)
+            return true
         }
     }
 
@@ -140,11 +164,11 @@ struct CartView: View {
             VStack(spacing: 10) {
                 // Quick actions
                 HStack(spacing: 8) {
-                    QuickActionButton(icon: "note.text", label: "Note",
+                    QuickActionButton(icon: "note.text", label: l10n.note,
                                       hasValue: !vm.orderNotes.isEmpty, action: showNote)
-                    QuickActionButton(icon: "tag.fill", label: "Discount",
+                    QuickActionButton(icon: "tag.fill", label: l10n.discount,
                                       hasValue: vm.discountAmount > 0, action: showDiscount)
-                    QuickActionButton(icon: "clock.fill", label: "Hold") {
+                    QuickActionButton(icon: "clock.fill", label: l10n.hold) {
                         Task { await vm.holdCurrentOrder() }
                     }
                 }
@@ -153,15 +177,15 @@ struct CartView: View {
 
                 // Subtotal rows
                 VStack(spacing: 6) {
-                    SummaryRow(label: "Subtotal", value: vm.cartSubtotal.sarFormatted)
+                    SummaryRow(label: l10n.subtotal, value: vm.cartSubtotal.sarFormatted)
                     if vm.discountAmount > 0 {
-                        SummaryRow(label: "Discount",
+                        SummaryRow(label: l10n.discount,
                                    value: "-\(vm.discountAmount.sarFormatted)",
                                    valueColor: AppTheme.success)
                     }
-                    SummaryRow(label: "VAT (15%)", value: vm.cartVAT.sarFormatted)
+                    SummaryRow(label: l10n.vat15, value: vm.cartVAT.sarFormatted)
                     Divider().background(AppTheme.border)
-                    SummaryRow(label: "Total",
+                    SummaryRow(label: l10n.total,
                                 value: vm.cartTotal.sarFormatted,
                                 labelFont: AppTheme.headline(),
                                 valueFont: AppTheme.title2(),
@@ -189,10 +213,15 @@ struct CartView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 16)
-                .disabled(appState.currentShift == nil)
+                .disabled(appState.currentShift == nil && offlineManager.isOnline)
                 .overlay(alignment: .top) {
-                    if appState.currentShift == nil {
-                        Text("Open a shift to accept payments")
+                    if appState.currentShift == nil && offlineManager.isOnline {
+                        Text(l10n.openShiftFirst)
+                            .font(AppTheme.caption(11))
+                            .foregroundColor(AppTheme.warning)
+                            .padding(.top, -18)
+                    } else if !offlineManager.isOnline {
+                        Text(l10n.offlineMode)
                             .font(AppTheme.caption(11))
                             .foregroundColor(AppTheme.warning)
                             .padding(.top, -18)

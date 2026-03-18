@@ -2,7 +2,8 @@
 import SwiftUI
 
 struct ShiftView: View {
-    @EnvironmentObject var appState: AppState
+    @Environment(AppState.self) var appState
+    private let l10n = L10n.shared
     @State private var openingCash = ""
     @State private var closingCash = ""
     @State private var shiftNotes = ""
@@ -43,10 +44,10 @@ struct ShiftView: View {
             VStack(spacing: 20) {
                 // Header
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Shift Management")
+                    Text(l10n.shiftManagement)
                         .font(AppTheme.title2())
                         .foregroundColor(AppTheme.textPrimary)
-                    Text("Manage your cashier shift")
+                    Text(l10n.manageShift)
                         .font(AppTheme.body())
                         .foregroundColor(AppTheme.textMuted)
                 }
@@ -72,17 +73,17 @@ struct ShiftView: View {
                     .frame(width: 12, height: 12)
                     .overlay(Circle().stroke(AppTheme.success.opacity(0.3), lineWidth: 3))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Shift Active")
+                    Text(l10n.shiftActive)
                         .font(AppTheme.headline())
                         .foregroundColor(AppTheme.success)
                     if let openedAt = shift.openedAt {
-                        Text("Opened at \(formatTime(openedAt))")
+                        Text("\(l10n.opened) \(formatTime(openedAt))")
                             .font(AppTheme.caption())
                             .foregroundColor(AppTheme.textMuted)
                     }
                 }
                 Spacer()
-                PillBadge(text: "LIVE", color: AppTheme.success)
+                PillBadge(text: l10n.live, color: AppTheme.success)
             }
             .padding(16)
             .background(AppTheme.success.opacity(0.06))
@@ -92,29 +93,29 @@ struct ShiftView: View {
 
             // Stats
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                ShiftStatCard(label: "Opening Cash",
+                ShiftStatCard(label: l10n.openingCash,
                               value: shift.openingCash.sarFormatted,
                               icon: "banknote.fill", color: AppTheme.success)
-                ShiftStatCard(label: "Total Sales",
+                ShiftStatCard(label: l10n.totalSales,
                               value: (shift.totalSales ?? 0).sarFormatted,
                               icon: "chart.line.uptrend.xyaxis", color: AppTheme.accent)
-                ShiftStatCard(label: "Total Orders",
+                ShiftStatCard(label: l10n.totalOrders,
                               value: "\(shift.totalOrders ?? 0)",
                               icon: "cart.fill", color: AppTheme.info)
-                ShiftStatCard(label: "Cash Sales",
+                ShiftStatCard(label: l10n.cashSales,
                               value: (shift.cashSales ?? 0).sarFormatted,
                               icon: "banknote", color: AppTheme.warning)
             }
 
             // Close shift section
             VStack(alignment: .leading, spacing: 12) {
-                Text("Close Shift")
+                Text(l10n.closeShift)
                     .font(AppTheme.headline())
                     .foregroundColor(AppTheme.textSecondary)
 
                 ThemeTextField(
                     icon: "banknote.fill",
-                    placeholder: "Closing cash amount",
+                    placeholder: l10n.closingCash,
                     text: $closingCash,
                     keyboardType: .decimalPad)
 
@@ -132,7 +133,7 @@ struct ShiftView: View {
                 if let closing = Double(closingCash) {
                     let diff = closing - (shift.cashSales ?? 0)
                     HStack {
-                        Text("Cash Difference:")
+                        Text(l10n.cashDifference)
                             .font(AppTheme.body())
                             .foregroundColor(AppTheme.textSecondary)
                         Spacer()
@@ -148,7 +149,7 @@ struct ShiftView: View {
                 Button {
                     showCloseConfirm = true
                 } label: {
-                    Label(isProcessing ? "Processing..." : "Close Shift", systemImage: "xmark.circle.fill")
+                    Label(isProcessing ? l10n.processing : l10n.closeShift, systemImage: "xmark.circle.fill")
                         .font(AppTheme.headline())
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -162,9 +163,9 @@ struct ShiftView: View {
             }
         }
         .confirmation(isPresented: $showCloseConfirm,
-                      title: "Close Shift",
-                      message: "Are you sure you want to close the current shift?",
-                      destructiveLabel: "Close Shift") {
+                      title: l10n.closeShiftConfirmTitle,
+                      message: l10n.closeShiftConfirmMsg,
+                      destructiveLabel: l10n.closeShift) {
             Task { await closeShift(shift: shift) }
         }
     }
@@ -182,10 +183,10 @@ struct ShiftView: View {
                         .font(.system(size: 36))
                         .foregroundColor(AppTheme.warning)
                 }
-                Text("No Active Shift")
+                Text(l10n.noActiveShift)
                     .font(AppTheme.headline())
                     .foregroundColor(AppTheme.textSecondary)
-                Text("Open a shift to start accepting orders")
+                Text(l10n.openShiftCTA)
                     .font(AppTheme.body())
                     .foregroundColor(AppTheme.textMuted)
                     .multilineTextAlignment(.center)
@@ -199,7 +200,7 @@ struct ShiftView: View {
 
             // Opening cash
             VStack(alignment: .leading, spacing: 12) {
-                Text("Opening Cash Amount")
+                Text(l10n.openingCashAmount)
                     .font(AppTheme.headline())
                     .foregroundColor(AppTheme.textSecondary)
 
@@ -236,7 +237,7 @@ struct ShiftView: View {
                     if isProcessing {
                         ProgressView().tint(.white)
                     } else {
-                        Label("Open Shift", systemImage: "clock.badge.checkmark.fill")
+                        Label(l10n.openShift, systemImage: "clock.badge.checkmark.fill")
                             .font(AppTheme.headline())
                     }
                 }
@@ -257,7 +258,7 @@ struct ShiftView: View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text("Shift History")
+                Text(l10n.shiftHistory)
                     .font(AppTheme.title2())
                     .foregroundColor(AppTheme.textPrimary)
                 Spacer()
@@ -277,7 +278,7 @@ struct ShiftView: View {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 40))
                         .foregroundColor(AppTheme.textMuted)
-                    Text("No shift history")
+                    Text(l10n.noShiftHistory)
                         .font(AppTheme.headline())
                         .foregroundColor(AppTheme.textSecondary)
                     Spacer()
@@ -306,7 +307,12 @@ struct ShiftView: View {
             let shift = try await api.openShift(openingCash: amount)
             appState.currentShift = shift
             openingCash = ""
-            appState.showSuccess("Shift opened successfully")
+            appState.showSuccess(l10n.shiftOpened())
+            // Schedule shift-end reminder (8-hour expected duration)
+            NotificationManager.shared.scheduleShiftEndReminder(
+                shiftId: shift.id,
+                shiftOpenDate: Date()
+            )
         } catch {
             appState.showError(error.localizedDescription)
         }
@@ -322,7 +328,9 @@ struct ShiftView: View {
             closingCash = ""
             shiftNotes = ""
             shiftHistory.insert(closed, at: 0)
-            appState.showSuccess("Shift closed. Total sales: \((closed.totalSales ?? 0).sarFormatted)")
+            appState.showSuccess(l10n.shiftClosed((closed.totalSales ?? 0).sarFormatted))
+            // Cancel pending shift reminder
+            NotificationManager.shared.cancelShiftReminders(shiftId: shift.id)
         } catch {
             // Sync with server — shift may have been closed remotely
             await appState.loadCurrentShift()

@@ -1,11 +1,11 @@
 // OfflineManager.swift — Offline order queue & auto-sync when back online
 import Foundation
-import Combine
 import Network
 
 /// Manages offline order persistence and auto-sync when connectivity restores
+@Observable
 @MainActor
-final class OfflineManager: ObservableObject {
+final class OfflineManager {
 
     static let shared = OfflineManager()
     private let api = APIService.shared
@@ -13,9 +13,9 @@ final class OfflineManager: ObservableObject {
     private let queue = DispatchQueue(label: "offline.monitor")
     private let storageKey = "offline_pending_orders"
 
-    @Published var isOnline = true
-    @Published var pendingCount = 0
-    @Published var isSyncing = false
+    var isOnline = true
+    var pendingCount = 0
+    var isSyncing = false
 
     private init() {
         loadPending()
@@ -67,6 +67,8 @@ final class OfflineManager: ObservableObject {
             synced: false
         ))
         pendingOrders = orders
+        // Schedule offline sync reminder (fires after 10 minutes if still offline)
+        NotificationManager.shared.scheduleOfflineSyncAlert(pendingCount: pendingCount)
     }
 
     // MARK: - Sync All Pending
@@ -108,6 +110,11 @@ final class OfflineManager: ObservableObject {
             pendingOrders = orders.filter { o in !toRemove.contains(where: { $0.localId == o.localId }) }
         }
         isSyncing = false
+        // If all orders are now synced, cancel the pending notification
+        if pendingCount == 0 {
+            NotificationManager.shared.cancelOfflineSyncAlert()
+        }
+        BGRefreshManager.scheduleSync()
     }
 }
 

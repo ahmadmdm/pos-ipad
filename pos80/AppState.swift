@@ -1,6 +1,6 @@
 // AppState.swift — Global state management for the POS app
 import SwiftUI
-import Combine
+import LocalAuthentication
 
 // MARK: - App Destination (navigation)
 enum AppDestination: Equatable {
@@ -8,33 +8,63 @@ enum AppDestination: Equatable {
     case main
 }
 
+@Observable
 @MainActor
-final class AppState: ObservableObject {
+final class AppState {
 
     static let shared = AppState()
     private let api = APIService.shared
 
     // MARK: Navigation
-    @Published var destination: AppDestination = .login
-    @Published var selectedTab: MainTab = .pos
+    var destination: AppDestination = .login
+    var selectedTab: MainTab = .pos
 
     // MARK: Auth
-    @Published var currentUser: CurrentUser?
-    @Published var isLoading = false
-    @Published var errorMessage: String?
-    @Published var successMessage: String?
+    var currentUser: CurrentUser?
+    var isLoading = false
+    var errorMessage: String?
+    var successMessage: String?
 
     // MARK: Current Shift
-    @Published var currentShift: Shift?
-    @Published var shiftLoaded = false
+    var currentShift: Shift?
+    var shiftLoaded = false
 
     // MARK: Appearance
-    @AppStorage("pos_is_dark") var isDark: Bool = true {
-        didSet { AppTheme.isDark = isDark }
+    var isDark: Bool = UserDefaults.standard.object(forKey: "pos_is_dark") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(isDark, forKey: "pos_is_dark")
+            AppTheme.isDark = isDark
+        }
     }
 
     // MARK: Toast
-    @Published var toast: ToastMessage?
+    var toast: ToastMessage?
+
+    // MARK: Spotlight deep-link
+    var spotlightOrderId: String?
+
+    // MARK: Biometric Lock
+    var isBiometricEnabled: Bool = UserDefaults.standard.bool(forKey: "biometric_lock_enabled") {
+        didSet { UserDefaults.standard.set(isBiometricEnabled, forKey: "biometric_lock_enabled") }
+    }
+    var isLocked: Bool = false
+
+    func unlockWithBiometric() async {
+        let context = LAContext()
+        var error: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
+            isLocked = false  // no biometrics enrolled — unlock anyway
+            return
+        }
+        do {
+            let success = try await context.evaluatePolicy(
+                .deviceOwnerAuthenticationWithBiometrics,
+                localizedReason: "Unlock your POS terminal")
+            if success { isLocked = false }
+        } catch {
+            // User cancelled or failed — stay locked
+        }
+    }
 
     private init() {
         AppTheme.isDark = isDark
@@ -103,8 +133,19 @@ final class AppState: ObservableObject {
     func loadCurrentShift() async {
         do {
             currentShift = try await api.getCurrentShift()
+            // Persist for offline use
+            if let shift = currentShift,
+               let data = try? JSONEncoder().encode(shift) {
+                UserDefaults.standard.set(data, forKey: "cached_current_shift")
+            }
         } catch {
-            currentShift = nil
+            // Offline fallback: load last known shift from cache
+            if let data = UserDefaults.standard.data(forKey: "cached_current_shift"),
+               let cached = try? JSONDecoder().decode(Shift.self, from: data) {
+                currentShift = cached
+            } else {
+                currentShift = nil
+            }
         }
         shiftLoaded = true
     }
@@ -166,6 +207,10 @@ enum MainTab: String, CaseIterable {
         case .reports:  return "chart.bar.xaxis"
         case .settings: return "gearshape.2.fill"
         }
+    }
+
+    var localizedName: String {
+        L10n.shared.tabName(self.rawValue)
     }
 }
 

@@ -2,7 +2,8 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @EnvironmentObject private var appState: AppState
+    @Environment(AppState.self) var appState
+    private let l10n = L10n.shared
     @State private var settings: AppSettings?
     @State private var staff: [Staff] = []
     @State private var isLoading = false
@@ -24,10 +25,10 @@ struct SettingsView: View {
     private var settingsSidebar: some View {
         VStack(alignment: .leading, spacing: 4) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Settings")
+                Text(l10n.settings)
                     .font(AppTheme.title2())
                     .foregroundColor(AppTheme.textPrimary)
-                Text("Configure your POS")
+                Text(l10n.configurePos)
                     .font(AppTheme.caption())
                     .foregroundColor(AppTheme.textMuted)
             }
@@ -110,6 +111,18 @@ enum SettingsSection: String, CaseIterable {
     case staff    = "Staff"
     case about    = "About"
 
+    var localizedName: String {
+        let l = L10n.shared
+        switch self {
+        case .general: return l.general
+        case .receipt: return l.receipt
+        case .printer: return l.printer
+        case .tax:     return l.taxCompliance
+        case .staff:   return l.staff
+        case .about:   return l.about
+        }
+    }
+
     var icon: String {
         switch self {
         case .general: return "gearshape.fill"
@@ -148,7 +161,7 @@ struct SettingsSidebarRow: View {
                     .frame(width: 28, height: 28)
                     .background(isSelected ? section.color : section.color.opacity(0.12))
                     .cornerRadius(8)
-                Text(section.rawValue)
+                Text(section.localizedName)
                     .font(AppTheme.caption(13))
                     .foregroundColor(isSelected ? AppTheme.textPrimary : AppTheme.textSecondary)
                 Spacer()
@@ -288,7 +301,8 @@ struct SettingsToggleRow: View {
 // MARK: - General Settings
 struct GeneralSettingsSection: View {
     @Binding var settings: AppSettings?
-    @EnvironmentObject private var appState: AppState
+    @Environment(AppState.self) var appState
+    private let l10n = L10n.shared
     @State private var apiURL: String = UserDefaults.standard.string(forKey: "api_base_url") ?? "http://localhost:8000"
 
     var body: some View {
@@ -332,20 +346,50 @@ struct GeneralSettingsSection: View {
             }
         }
 
-        SettingsCard(title: "Store Info", icon: "building.2.fill", color: AppTheme.accent) {
-            SettingsRow(label: "Business Name", value: "AMPOS")
-            SettingsRow(label: "Currency", value: settings?.currency ?? "SAR")
-            SettingsRow(label: "Time Zone", value: settings?.timezone ?? "Asia/Riyadh")
-            SettingsRow(label: "Language", value: "English / العربية")
+        SettingsCard(title: l10n.storeInfo, icon: "building.2.fill", color: AppTheme.accent) {
+            SettingsRow(label: l10n.businessName, value: "AMPOS")
+            SettingsRow(label: l10n.currency, value: settings?.currency ?? "SAR")
+            SettingsRow(label: l10n.timeZone, value: settings?.timezone ?? "Asia/Riyadh")
         }
 
-        SettingsCard(title: "Appearance", icon: "paintbrush.pointed.fill", color: Color(hex: "A78BFA")) {
+        // Language Toggle
+        SettingsCard(title: l10n.languageLabel, icon: "globe", color: AppTheme.accent) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Dark Mode")
+                    Text(l10n.languageLabel)
                         .font(AppTheme.caption(13))
                         .foregroundColor(AppTheme.textSecondary)
-                    Text("Switch between light and dark theme")
+                }
+                Spacer()
+                HStack(spacing: 4) {
+                    ForEach(L10n.Language.allCases, id: \.self) { lang in
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                                l10n.language = lang
+                            }
+                        } label: {
+                            Text(lang.displayName)
+                                .font(AppTheme.caption(12))
+                                .foregroundColor(l10n.language == lang ? .white : AppTheme.textSecondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(l10n.language == lang ? AppTheme.accent : AppTheme.cardHover)
+                                .cornerRadius(8)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+        }
+
+        SettingsCard(title: l10n.appearance, icon: "paintbrush.pointed.fill", color: Color(hex: "A78BFA")) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(l10n.darkMode)
+                        .font(AppTheme.caption(13))
+                        .foregroundColor(AppTheme.textSecondary)
+                    Text(l10n.switchTheme)
                         .font(AppTheme.caption(11))
                         .foregroundColor(AppTheme.textMuted)
                 }
@@ -359,7 +403,7 @@ struct GeneralSettingsSection: View {
                         HStack(spacing: 6) {
                             Image(systemName: "sun.max.fill")
                                 .font(.system(size: 12, weight: .semibold))
-                            Text("Light")
+                            Text(l10n.light)
                                 .font(AppTheme.caption(12))
                         }
                         .foregroundColor(!appState.isDark ? .white : AppTheme.textSecondary)
@@ -376,7 +420,7 @@ struct GeneralSettingsSection: View {
                         HStack(spacing: 6) {
                             Image(systemName: "moon.fill")
                                 .font(.system(size: 12, weight: .semibold))
-                            Text("Dark")
+                            Text(l10n.dark)
                                 .font(AppTheme.caption(12))
                         }
                         .foregroundColor(appState.isDark ? .white : AppTheme.textSecondary)
@@ -396,13 +440,35 @@ struct GeneralSettingsSection: View {
             SettingsRow(label: "Idle Timeout", value: "5 minutes")
             SettingsRow(label: "Auto-Print Receipt", value: "Enabled")
         }
+
+        SettingsCard(title: "Security", icon: "lock.shield.fill", color: AppTheme.danger) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Face ID Lock")
+                        .font(AppTheme.caption(13))
+                        .foregroundColor(AppTheme.textSecondary)
+                    Text("Lock POS when app goes to background")
+                        .font(AppTheme.caption(11))
+                        .foregroundColor(AppTheme.textMuted)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { appState.isBiometricEnabled },
+                    set: { appState.isBiometricEnabled = $0 }
+                ))
+                .tint(AppTheme.accent)
+                .labelsHidden()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+        }
     }
 }
 
 // MARK: - Receipt Settings
 struct ReceiptSettingsSection: View {
     @Binding var settings: AppSettings?
-    @EnvironmentObject private var appState: AppState
+    @Environment(AppState.self) var appState
     @State private var footer = ""
     @State private var paperSize = "80mm"
     @State private var fontSize = "normal"
@@ -505,16 +571,68 @@ struct ReceiptSettingsSection: View {
 // MARK: - Printer Settings
 struct PrinterSettingsSection: View {
     @Binding var settings: AppSettings?
-    @EnvironmentObject private var appState: AppState
+    @Environment(AppState.self) var appState
     @State private var receiptIP    = ""
     @State private var receiptPort  = "9100"
     @State private var kitchenIP    = ""
     @State private var kitchenPort  = "9100"
-    @State private var isSaving = false
+    @State private var isSaving     = false
+    @State private var showDiscovery = false
 
     private let api = APIService.shared
 
     var body: some View {
+        // ── Auto-discovery button ──────────────────────────────────────────
+        Button {
+            showDiscovery = true
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(AppTheme.accent.opacity(0.12))
+                        .frame(width: 38, height: 38)
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(AppTheme.accent)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Discover Printers Automatically")
+                        .font(AppTheme.headline())
+                        .foregroundColor(AppTheme.textPrimary)
+                    Text("Scan WiFi network for ESC/POS printers on port 9100")
+                        .font(AppTheme.caption(11))
+                        .foregroundColor(AppTheme.textMuted)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.textMuted)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(AppTheme.card)
+            .cornerRadius(AppTheme.r12)
+            .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
+                .strokeBorder(AppTheme.accent.opacity(0.2), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showDiscovery) {
+            PrinterDiscoverySheet(
+                onSelectReceipt: { ip, port in
+                    receiptIP   = ip
+                    receiptPort = String(port)
+                    showDiscovery = false
+                },
+                onSelectKitchen: { ip, port in
+                    kitchenIP   = ip
+                    kitchenPort = String(port)
+                    showDiscovery = false
+                }
+            )
+            .presentationDetents([.fraction(0.7), .large])
+            .presentationDragIndicator(.visible)
+        }
+
         SettingsCard(title: "Receipt Printer", icon: "printer.fill", color: AppTheme.success) {
             printerField("IP Address", text: $receiptIP, placeholder: "192.168.1.100")
             printerField("Port", text: $receiptPort, placeholder: "9100")
