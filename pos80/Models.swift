@@ -313,6 +313,7 @@ extension Order: Codable {
         case tableNumber   = "table_number"
         case customerName  = "customer_name"
         case items, subtotal
+        case totalAmount   = "total_amount"  // API alternate key
         case vatAmount     = "vat_amount"
         case discountAmount = "discount_amount"
         case total
@@ -334,8 +335,8 @@ extension Order: Codable {
 
         orderNumber   = try? c.decode(String.self, forKey: .orderNumber)
         displayNumber = try? c.decode(Int.self,    forKey: .displayNumber)
-        orderType     = (try? c.decode(String.self, forKey: .orderType)) ?? "dine_in"
-        status        = (try? c.decode(String.self, forKey: .status)) ?? "draft"
+        orderType     = ((try? c.decode(String.self, forKey: .orderType)) ?? "dine_in").lowercased()
+        status        = ((try? c.decode(String.self, forKey: .status)) ?? "draft").lowercased()
         tableId       = try? c.decode(String.self, forKey: .tableId)
         tableNumber   = try? c.decode(String.self, forKey: .tableNumber)
         customerName  = try? c.decode(String.self, forKey: .customerName)
@@ -343,7 +344,8 @@ extension Order: Codable {
         subtotal      = try? c.decode(Double.self, forKey: .subtotal)
         vatAmount     = try? c.decode(Double.self, forKey: .vatAmount)
         discountAmount = try? c.decode(Double.self, forKey: .discountAmount)
-        total         = try? c.decode(Double.self, forKey: .total)
+        total         = (try? c.decode(Double.self, forKey: .total))
+                     ?? (try? c.decode(Double.self, forKey: .totalAmount))
         paymentMethod = try? c.decode(String.self, forKey: .paymentMethod)
         notes         = try? c.decode(String.self, forKey: .notes)
         createdAt     = try? c.decode(String.self, forKey: .createdAt)
