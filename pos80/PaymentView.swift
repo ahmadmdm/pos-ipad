@@ -60,7 +60,6 @@ struct PaymentView: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     // MARK: - Payment Screen

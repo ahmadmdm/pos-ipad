@@ -64,7 +64,7 @@ struct CartView: View {
                         HStack(spacing: 4) {
                             Image(systemName: "table.furniture.fill")
                                 .font(.system(size: 11, weight: .semibold))
-                            Text(vm.selectedTable != nil ? "T\(vm.selectedTable!.number)" : l10n.noTable)
+                            Text(vm.selectedTable?.displayLabel ?? l10n.noTable)
                                 .font(AppTheme.caption())
                         }
                         .foregroundColor(vm.selectedTable != nil ? AppTheme.success : AppTheme.textMuted)

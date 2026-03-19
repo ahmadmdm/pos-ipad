@@ -73,7 +73,6 @@ struct CustomerDisplayView: View {
                 orderScreen
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     // MARK: Welcome

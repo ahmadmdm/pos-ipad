@@ -1,6 +1,20 @@
 // SettingsView.swift — App configuration & staff management
 import SwiftUI
 
+private enum AppInfo {
+    static var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "-"
+    }
+
+    static var build: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "-"
+    }
+
+    static var bundleIdentifier: String {
+        Bundle.main.bundleIdentifier ?? "com.ampos.pos80"
+    }
+}
+
 struct SettingsView: View {
     @Environment(AppState.self) var appState
     private let l10n = L10n.shared
@@ -53,7 +67,7 @@ struct SettingsView: View {
             // App Version
             VStack(spacing: 4) {
                 Rectangle().fill(AppTheme.border).frame(height: 1)
-                Text("AMPOS POS v1.0.0")
+                Text("AMPOS POS v\(AppInfo.version)")
                     .font(AppTheme.caption(11))
                     .foregroundColor(AppTheme.textMuted)
                     .padding(.top, 8)
@@ -889,9 +903,9 @@ struct StaffRow: View {
 struct AboutSection: View {
     var body: some View {
         SettingsCard(title: "Application", icon: "info.circle.fill", color: AppTheme.textSecondary) {
-            SettingsRow(label: "Version", value: "1.0.0")
-            SettingsRow(label: "Build", value: "100")
-            SettingsRow(label: "Bundle ID", value: "com.ampos.pos80")
+            SettingsRow(label: "Version", value: AppInfo.version)
+            SettingsRow(label: "Build", value: AppInfo.build)
+            SettingsRow(label: "Bundle ID", value: AppInfo.bundleIdentifier)
             SettingsRow(label: "Platform", value: "iPadOS 17+")
             SettingsRow(label: "API Version", value: "v1")
         }

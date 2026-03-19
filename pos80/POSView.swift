@@ -512,13 +512,11 @@ struct POSView: View {
 
                                 Button {
                                     Task {
-                                        await vm.unholdOrder(order)
-                                        if vm.heldOrders.isEmpty {
-                                            showHeldOrders = false
-                                        }
+                                        await vm.loadHeldOrderIntoCart(order)
+                                        showHeldOrders = false
                                     }
                                 } label: {
-                                    Text(l10n.restore)
+                                    Text(l10n.loadToCart)
                                         .font(AppTheme.caption(12))
                                         .foregroundColor(.white)
                                         .padding(.horizontal, 12)
@@ -684,7 +682,6 @@ struct SheetContainer<Content: View>: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
     }
 }
 

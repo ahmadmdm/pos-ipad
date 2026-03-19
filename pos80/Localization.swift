@@ -209,6 +209,10 @@ extension L10n {
     var noHeldOrders: String { t("No held orders", "لا توجد طلبات معلّقة") }
     var holdSubtitle: String { t("Hold an order from the cart to save it for later", "علّق طلب من السلة لحفظه لاحقاً") }
     var restore: String { t("Restore", "استعادة") }
+    var loadToCart: String { t("Load to Cart", "تحميل إلى السلة") }
+    var heldOrderLoaded: String { t("Held order loaded into cart", "تم تحميل الطلب المعلّق إلى السلة") }
+    var heldOrderLoadedPartial: String { t("Held order loaded with missing items skipped", "تم تحميل الطلب مع تجاوز العناصر غير المتاحة") }
+    var heldOrderNotRestorable: String { t("This held order can't be loaded into the cart", "لا يمكن تحميل هذا الطلب المعلّق إلى السلة") }
 
     // MARK: Login Screen
     var professionalPOS: String { t("Professional Point of Sale", "نظام نقاط البيع الاحترافي") }

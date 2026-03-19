@@ -299,6 +299,11 @@ struct Order: Identifiable {
 
     var orderStatus: OrderStatus { OrderStatus(rawValue: status) ?? .draft }
     var totalSafe: Double { total ?? 0 }
+    var displayTableNumber: String? {
+        guard let tableNumber, !tableNumber.isEmpty else { return nil }
+        let trimmed = tableNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.uppercased().hasPrefix("T") ? trimmed : "T\(trimmed)"
+    }
 }
 
 extension Order: Codable {
@@ -436,6 +441,10 @@ struct RestaurantTable: Codable, Identifiable {
     }
 
     var isOccupied: Bool { status == "occupied" }
+    var displayLabel: String {
+        let trimmed = number.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.uppercased().hasPrefix("T") ? trimmed : "T\(trimmed)"
+    }
 }
 
 // MARK: - Shifts

@@ -267,8 +267,8 @@ struct OrderRow: View {
                     }
 
                     HStack(spacing: 8) {
-                        if let table = order.tableNumber {
-                            Label("T\(table)", systemImage: "table.furniture.fill")
+                        if let table = order.displayTableNumber {
+                            Label(table, systemImage: "table.furniture.fill")
                                 .font(AppTheme.caption(11))
                                 .foregroundColor(AppTheme.textMuted)
                         }

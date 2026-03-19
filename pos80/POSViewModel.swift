@@ -7,6 +7,7 @@ final class POSViewModel {
 
     private let api = APIService.shared
     private let appState = AppState.shared
+    private let l10n = L10n.shared
     var offlineManager: OfflineManager { OfflineManager.shared }
     private var invoiceStore: LocalInvoiceStore { LocalInvoiceStore.shared }
 
@@ -151,6 +152,7 @@ final class POSViewModel {
     func clearCart() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
             cartItems.removeAll()
+            orderType = .dineIn
             discountAmount = 0
             customerName = ""
             customerPhone = ""
@@ -316,12 +318,58 @@ final class POSViewModel {
         }
     }
 
-    // MARK: Unhold Order (restore to cart isn't straightforward, so just unhold)
-    func unholdOrder(_ order: Order) async {
+    // MARK: Load Held Order Into Cart
+    func loadHeldOrderIntoCart(_ order: Order) async {
         do {
-            _ = try await api.unholdOrder(order.id)
-            heldOrders.removeAll { $0.id == order.id }
-            appState.showSuccess("Order restored")
+            let detailedOrder = try await api.getOrder(order.id)
+            let sourceItems = detailedOrder.items ?? order.items ?? []
+
+            guard !sourceItems.isEmpty else {
+                appState.showError(l10n.heldOrderNotRestorable)
+                return
+            }
+
+            var restoredItems: [CartItem] = []
+            var missingItems = 0
+
+            for item in sourceItems {
+                guard let productId = item.productId,
+                      let product = products.first(where: { $0.id == productId }) else {
+                    missingItems += 1
+                    continue
+                }
+
+                restoredItems.append(
+                    CartItem(
+                        product: product,
+                        quantity: max(item.quantity, 1),
+                        notes: item.notes,
+                        selectedModifiers: []
+                    )
+                )
+            }
+
+            guard !restoredItems.isEmpty else {
+                appState.showError(l10n.heldOrderNotRestorable)
+                return
+            }
+
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                cartItems = restoredItems
+                orderType = OrderType(rawValue: detailedOrder.orderType) ?? .dineIn
+                selectedTable = tables.first(where: { $0.id == detailedOrder.tableId })
+                customerName = detailedOrder.customerName ?? ""
+                customerPhone = ""
+                orderNotes = detailedOrder.notes ?? ""
+                discountAmount = detailedOrder.discountAmount ?? 0
+            }
+
+            appState.selectedTab = .pos
+            if missingItems > 0 {
+                appState.showError(l10n.heldOrderLoadedPartial)
+            } else {
+                appState.showSuccess(l10n.heldOrderLoaded)
+            }
         } catch {
             self.error = error.localizedDescription
             appState.showError(error.localizedDescription)
