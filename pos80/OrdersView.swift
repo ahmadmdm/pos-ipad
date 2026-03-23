@@ -114,6 +114,10 @@ struct OrdersView: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
+                    Text("SERVICE MONITOR")
+                        .font(AppTheme.caption(11))
+                        .tracking(2)
+                        .foregroundColor(AppTheme.accent)
                     Text(l10n.orders)
                         .font(AppTheme.title2())
                         .foregroundColor(AppTheme.textPrimary)
@@ -131,6 +135,10 @@ struct OrdersView: View {
                         .frame(width: 36, height: 36)
                         .background(AppTheme.card)
                         .cornerRadius(10)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .strokeBorder(AppTheme.border, lineWidth: 1)
+                        )
                         .rotationEffect(.degrees(isLoading ? 360 : 0))
                         .animation(isLoading ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: isLoading)
                 }
@@ -165,6 +173,13 @@ struct OrdersView: View {
                     }
                 }
             }
+            .padding(8)
+            .background(AppTheme.surface)
+            .cornerRadius(AppTheme.r16)
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.r16)
+                    .strokeBorder(AppTheme.border, lineWidth: 1)
+            )
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
         }
@@ -176,7 +191,7 @@ struct OrdersView: View {
     // MARK: - Orders List
     private var ordersList: some View {
         ScrollView(showsIndicators: false) {
-            LazyVStack(spacing: 1) {
+            LazyVStack(spacing: 10) {
                 ForEach(filteredOrders) { order in
                     OrderRow(order: order, isSelected: selectedOrder?.id == order.id) {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
@@ -208,6 +223,8 @@ struct OrdersView: View {
                     }
                 }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
         }
     }
 
@@ -313,14 +330,23 @@ struct OrderRow: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(isSelected ? AppTheme.accent.opacity(0.08) : AppTheme.surface)
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.r16)
+                    .fill(isSelected ? AppTheme.accent.opacity(0.08) : AppTheme.card)
+            )
             .overlay(alignment: .trailing) {
                 if isSelected {
                     Rectangle()
                         .fill(AppTheme.accent)
                         .frame(width: 3)
+                        .padding(.vertical, 12)
                 }
             }
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.r16)
+                    .strokeBorder(isSelected ? AppTheme.accent.opacity(0.25) : AppTheme.border, lineWidth: 1)
+            )
+            .shadow(color: isSelected ? AppTheme.accent.opacity(0.08) : AppTheme.shadow.opacity(0.55), radius: 10, y: 4)
         }
         .buttonStyle(.plain)
     }
@@ -368,6 +394,8 @@ struct OrderDetailView: View {
     @State private var isDownloadingPDF = false
     @State private var detailPdfData: Data?
     @State private var showPDFPreview = false
+    @State private var showManagerApproval = false
+    @State private var pendingVoidItem: OrderItem?
     private let api = APIService.shared
     private let l10n = L10n.shared
 
@@ -451,6 +479,19 @@ struct OrderDetailView: View {
                             Text((item.lineTotal ?? item.unitPrice * Double(item.quantity)).sarFormatted)
                                 .font(AppTheme.mono(14))
                                 .foregroundColor(AppTheme.textSecondary)
+                            if canVoidItems {
+                                Button {
+                                    Task { await requestVoidApproval(for: item) }
+                                } label: {
+                                    Image(systemName: "trash.fill")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(AppTheme.danger)
+                                        .frame(width: 28, height: 28)
+                                        .background(AppTheme.danger.opacity(0.1))
+                                        .cornerRadius(8)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                         .padding(12)
                         .background(AppTheme.card)
@@ -485,6 +526,18 @@ struct OrderDetailView: View {
                 PDFPreviewSheet(data: data)
             }
         }
+        .sheet(isPresented: $showManagerApproval) {
+            ManagerApprovalSheet(
+                actionTitle: pendingVoidItem == nil ? l10n.cancelOrderApproval : l10n.voidItemApproval,
+                message: l10n.managerApprovalRequired
+            ) { _ in
+                if let item = pendingVoidItem {
+                    Task { await voidItem(item) }
+                } else {
+                    Task { await updateStatus("cancelled") }
+                }
+            }
+        }
         // Handoff — advertise this order so it can be continued on another device
         .userActivity("com.ampos.pos80.viewOrder") { activity in
             activity.title = "Order \(order.orderNumber ?? "#\(order.displayNumber ?? 0)")"
@@ -515,8 +568,30 @@ struct OrderDetailView: View {
 
             // Cancel
             StatusActionButton(label: l10n.cancelOrder, icon: "xmark.circle.fill", color: AppTheme.danger) {
-                await updateStatus("cancelled")
+                await requestCancelApproval()
             }
+        }
+    }
+
+    private var canVoidItems: Bool {
+        order.status != "paid" && order.status != "cancelled" && order.status != "void"
+    }
+
+    private func requestCancelApproval() async {
+        pendingVoidItem = nil
+        if appState.currentUser?.isManager ?? false {
+            await updateStatus("cancelled")
+        } else {
+            showManagerApproval = true
+        }
+    }
+
+    private func requestVoidApproval(for item: OrderItem) async {
+        pendingVoidItem = item
+        if appState.currentUser?.isManager ?? false {
+            await voidItem(item)
+        } else {
+            showManagerApproval = true
         }
     }
 
@@ -545,6 +620,21 @@ struct OrderDetailView: View {
             appState.toast = ToastMessage(type: .error, text: error.localizedDescription)
         }
         isUpdating = false
+    }
+
+    private func voidItem(_ item: OrderItem) async {
+        isUpdating = true
+        defer {
+            pendingVoidItem = nil
+            isUpdating = false
+        }
+        do {
+            let updated = try await api.voidOrderItem(orderId: order.id, itemId: item.id)
+            onStatusChange(updated)
+            appState.showSuccess(l10n.voidItem)
+        } catch {
+            appState.toast = ToastMessage(type: .error, text: error.localizedDescription)
+        }
     }
 }
 

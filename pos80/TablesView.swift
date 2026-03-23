@@ -40,6 +40,10 @@ struct TablesView: View {
     private var tablesHeader: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
+                Text("Dining Room")
+                    .font(AppTheme.caption(11))
+                    .tracking(2)
+                    .foregroundColor(AppTheme.accent)
                 Text("Tables")
                     .font(AppTheme.title2())
                     .foregroundColor(AppTheme.textPrimary)
@@ -58,6 +62,10 @@ struct TablesView: View {
                         .frame(width: 36, height: 36)
                         .background(AppTheme.card)
                         .cornerRadius(10)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .strokeBorder(AppTheme.border, lineWidth: 1)
+                        )
                 }
                 if appState.currentUser?.isManager ?? false {
                     Button { showAddTable = true } label: {
@@ -67,6 +75,7 @@ struct TablesView: View {
                             .frame(width: 36, height: 36)
                             .background(AppTheme.accentGradH)
                             .cornerRadius(10)
+                            .shadow(color: AppTheme.accent.opacity(0.2), radius: 12, y: 6)
                     }
                 }
             }
@@ -168,7 +177,7 @@ struct TablesView: View {
                 ThemeTextField(icon: "rectangle.split.3x1.fill", placeholder: "Section (optional)",
                                text: $newTableSection)
                 ThemeTextField(icon: "person.2.fill", placeholder: "Capacity",
-                               text: $newTableSection, keyboardType: .numberPad)
+                               text: $newTableCapacity, keyboardType: .numberPad)
 
                 Button {
                     Task { await addTable() }
@@ -274,11 +283,16 @@ struct TableCard: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity)
-            .background(AppTheme.card)
+            .background(
+                LinearGradient(
+                    colors: [AppTheme.card, statusColor.opacity(0.08)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing)
+            )
             .cornerRadius(AppTheme.r16)
             .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
                 .strokeBorder(table.isOccupied ? AppTheme.danger.opacity(0.3) : AppTheme.border, lineWidth: 1))
-            .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+            .shadow(color: statusColor.opacity(0.14), radius: 16, y: 8)
             .scaleEffect(isPressed ? 0.95 : 1)
             .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isPressed)
         }
@@ -317,5 +331,6 @@ struct TableStatCard: View {
         .cornerRadius(AppTheme.r12)
         .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
             .strokeBorder(AppTheme.border, lineWidth: 1))
+        .shadow(color: AppTheme.shadow.opacity(0.7), radius: 14, y: 6)
     }
 }

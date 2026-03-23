@@ -20,6 +20,8 @@ struct SettingsView: View {
     private let l10n = L10n.shared
     @State private var settings: AppSettings?
     @State private var staff: [Staff] = []
+    @State private var broadcasts: [BroadcastItem] = []
+    @State private var unreadBroadcastCount = 0
     @State private var isLoading = false
     @State private var selectedSection: SettingsSection = .general
 
@@ -31,7 +33,12 @@ struct SettingsView: View {
             Rectangle().fill(AppTheme.border).frame(width: 1)
             settingsContent
         }
-        .background(AppTheme.bg)
+        .background(
+            LinearGradient(
+                colors: [AppTheme.bg, Color(hex: "F6ECE0")],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing)
+        )
         .task { await loadAll() }
     }
 
@@ -39,6 +46,10 @@ struct SettingsView: View {
     private var settingsSidebar: some View {
         VStack(alignment: .leading, spacing: 4) {
             VStack(alignment: .leading, spacing: 2) {
+                Text("CONTROL ROOM")
+                    .font(AppTheme.caption(11))
+                    .tracking(2)
+                    .foregroundColor(AppTheme.accent)
                 Text(l10n.settings)
                     .font(AppTheme.title2())
                     .foregroundColor(AppTheme.textPrimary)
@@ -55,7 +66,11 @@ struct SettingsView: View {
                 .padding(.bottom, 8)
 
             ForEach(SettingsSection.allCases, id: \.self) { section in
-                SettingsSidebarRow(section: section, isSelected: selectedSection == section) {
+                SettingsSidebarRow(
+                    section: section,
+                    isSelected: selectedSection == section,
+                    badgeCount: section == .broadcasts ? unreadBroadcastCount : nil
+                ) {
                     withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
                         selectedSection = section
                     }
@@ -76,7 +91,12 @@ struct SettingsView: View {
             .padding(.horizontal, 16)
         }
         .frame(width: 220)
-        .background(AppTheme.surface)
+        .background(
+            LinearGradient(
+                colors: [AppTheme.surface, Color(hex: "F2E6D7")],
+                startPoint: .top,
+                endPoint: .bottom)
+        )
     }
 
     // MARK: - Content Area
@@ -91,6 +111,7 @@ struct SettingsView: View {
                 VStack(spacing: 24) {
                     switch selectedSection {
                     case .general:   GeneralSettingsSection(settings: $settings)
+                    case .broadcasts: BroadcastsSection(broadcasts: $broadcasts, unreadCount: $unreadBroadcastCount)
                     case .receipt:   ReceiptSettingsSection(settings: $settings)
                     case .printer:   PrinterSettingsSection(settings: $settings)
                     case .tax:       TaxSettingsSection(settings: $settings)
@@ -109,9 +130,14 @@ struct SettingsView: View {
         isLoading = true
         async let s = try? api.fetchSettings()
         async let st = try? api.fetchStaff()
-        let (settingsResult, staffResult) = await (s, st)
+        async let br = try? api.fetchBroadcasts()
+        let (settingsResult, staffResult, broadcastsResult) = await (s, st, br)
         settings = settingsResult
         staff = staffResult ?? []
+        broadcasts = broadcastsResult?.items ?? []
+        unreadBroadcastCount = broadcastsResult?.unreadCount ?? 0
+        appState.latestBroadcasts = broadcasts
+        appState.unreadBroadcastCount = unreadBroadcastCount
         isLoading = false
     }
 }
@@ -119,6 +145,7 @@ struct SettingsView: View {
 // MARK: - Section enum
 enum SettingsSection: String, CaseIterable {
     case general  = "General"
+    case broadcasts = "Broadcasts"
     case receipt  = "Receipt"
     case printer  = "Printer"
     case tax      = "Tax & Compliance"
@@ -129,6 +156,7 @@ enum SettingsSection: String, CaseIterable {
         let l = L10n.shared
         switch self {
         case .general: return l.general
+        case .broadcasts: return l.broadcasts
         case .receipt: return l.receipt
         case .printer: return l.printer
         case .tax:     return l.taxCompliance
@@ -140,6 +168,7 @@ enum SettingsSection: String, CaseIterable {
     var icon: String {
         switch self {
         case .general: return "gearshape.fill"
+        case .broadcasts: return "megaphone.fill"
         case .receipt: return "doc.text.fill"
         case .printer: return "printer.fill"
         case .tax:     return "percent"
@@ -151,6 +180,7 @@ enum SettingsSection: String, CaseIterable {
     var color: Color {
         switch self {
         case .general: return AppTheme.accent
+        case .broadcasts: return AppTheme.warning
         case .receipt: return AppTheme.info
         case .printer: return AppTheme.success
         case .tax:     return AppTheme.warning
@@ -164,6 +194,7 @@ enum SettingsSection: String, CaseIterable {
 struct SettingsSidebarRow: View {
     let section: SettingsSection
     let isSelected: Bool
+    let badgeCount: Int?
     let action: () -> Void
 
     var body: some View {
@@ -178,6 +209,15 @@ struct SettingsSidebarRow: View {
                 Text(section.localizedName)
                     .font(AppTheme.caption(13))
                     .foregroundColor(isSelected ? AppTheme.textPrimary : AppTheme.textSecondary)
+                if let badgeCount, badgeCount > 0 {
+                    Text("\(badgeCount)")
+                        .font(AppTheme.caption(10))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(AppTheme.warning)
+                        .cornerRadius(999)
+                }
                 Spacer()
                 if isSelected {
                     Image(systemName: "chevron.right")
@@ -242,6 +282,7 @@ struct SettingsCard<Content: View>: View {
         .cornerRadius(AppTheme.r16)
         .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
             .strokeBorder(AppTheme.border, lineWidth: 1))
+        .shadow(color: AppTheme.shadow.opacity(0.7), radius: 18, y: 8)
     }
 }
 
@@ -312,12 +353,139 @@ struct SettingsToggleRow: View {
     }
 }
 
+struct BroadcastsSection: View {
+    @Binding var broadcasts: [BroadcastItem]
+    @Binding var unreadCount: Int
+    @Environment(AppState.self) var appState
+    private let l10n = L10n.shared
+    private let api = APIService.shared
+    @State private var dismissingBroadcastId: String?
+
+    var body: some View {
+        if broadcasts.isEmpty {
+            SettingsCard(title: l10n.broadcastsInbox, subtitle: nil, icon: "megaphone.fill", color: AppTheme.warning) {
+                VStack(spacing: 10) {
+                    Image(systemName: "tray.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(AppTheme.textMuted)
+                    Text(l10n.noBroadcasts)
+                        .font(AppTheme.caption())
+                        .foregroundColor(AppTheme.textMuted)
+                        .padding(.bottom, 8)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(24)
+            }
+        } else {
+            SettingsCard(
+                title: l10n.broadcastsInbox,
+                subtitle: l10n.unreadBroadcasts(unreadCount),
+                icon: "megaphone.fill",
+                color: AppTheme.warning
+            ) {
+                ForEach(broadcasts) { item in
+                    broadcastRow(item)
+                }
+            }
+        }
+    }
+
+    private func broadcastRow(_ item: BroadcastItem) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(item.title)
+                        .font(AppTheme.headline(15))
+                        .foregroundColor(AppTheme.textPrimary)
+                    Text(item.body)
+                        .font(AppTheme.body(13))
+                        .foregroundColor(AppTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Button {
+                    Task { await dismiss(item) }
+                } label: {
+                    if dismissingBroadcastId == item.id {
+                        ProgressView()
+                            .tint(AppTheme.warning)
+                            .scaleEffect(0.75)
+                            .frame(width: 44, height: 30)
+                    } else {
+                        Text(l10n.dismiss)
+                            .font(AppTheme.caption(12))
+                            .foregroundColor(AppTheme.warning)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(AppTheme.warning.opacity(0.12))
+                            .cornerRadius(8)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(dismissingBroadcastId != nil)
+            }
+
+            HStack(spacing: 8) {
+                if let createdAt = item.createdAt, !createdAt.isEmpty {
+                    Label(relativeDateLabel(createdAt), systemImage: "clock")
+                        .font(AppTheme.caption(11))
+                        .foregroundColor(AppTheme.textMuted)
+                }
+                if let plan = item.audiencePlan, !plan.isEmpty {
+                    Text(plan.uppercased())
+                        .font(AppTheme.caption(10))
+                        .foregroundColor(AppTheme.accent)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(AppTheme.accent.opacity(0.1))
+                        .cornerRadius(999)
+                }
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(AppTheme.border.opacity(0.6)).frame(height: 0.5).padding(.leading, 20)
+        }
+    }
+
+    private func dismiss(_ item: BroadcastItem) async {
+        dismissingBroadcastId = item.id
+        do {
+            try await api.dismissBroadcast(item.id)
+            broadcasts.removeAll { $0.id == item.id }
+            unreadCount = broadcasts.count
+            appState.latestBroadcasts = broadcasts
+            appState.unreadBroadcastCount = unreadCount
+            appState.showSuccess(l10n.dismiss)
+        } catch {
+            appState.showSuccess(error.localizedDescription)
+        }
+        dismissingBroadcastId = nil
+    }
+
+    private func relativeDateLabel(_ value: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        guard let date = formatter.date(from: value) else { return value }
+        let relative = RelativeDateTimeFormatter()
+        relative.unitsStyle = .short
+        return relative.localizedString(for: date, relativeTo: Date())
+    }
+}
+
 // MARK: - General Settings
 struct GeneralSettingsSection: View {
     @Binding var settings: AppSettings?
     @Environment(AppState.self) var appState
     private let l10n = L10n.shared
     @State private var apiURL: String = UserDefaults.standard.string(forKey: "api_base_url") ?? "http://localhost:8000"
+
+    private var apiURLWarning: String? {
+        let candidate = apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard APIConfig.shouldWarnAboutLoopback(candidate) else { return nil }
+        return "localhost works on the simulator only. On a real iPad, set the Mac or backend LAN IP instead."
+    }
 
     var body: some View {
         SettingsCard(title: "Server Connection", subtitle: "API endpoint", icon: "server.rack", color: AppTheme.info) {
@@ -340,6 +508,20 @@ struct GeneralSettingsSection: View {
             .padding(.vertical, 14)
             .overlay(alignment: .bottom) {
                 Rectangle().fill(AppTheme.border.opacity(0.6)).frame(height: 0.5).padding(.leading, 20)
+            }
+
+            if let warning = apiURLWarning {
+                HStack {
+                    Text(warning)
+                        .font(AppTheme.caption(12))
+                        .foregroundColor(AppTheme.warning)
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(AppTheme.border.opacity(0.6)).frame(height: 0.5).padding(.leading, 20)
+                }
             }
 
             HStack {
@@ -496,6 +678,14 @@ struct ReceiptSettingsSection: View {
     var body: some View {
         SettingsCard(title: "Receipt Options", icon: "doc.text.fill", color: AppTheme.info) {
             SettingsToggleRow(label: "Auto-print on sale", subtitle: "Print receipt after every payment", isOn: $autoprint)
+            SettingsToggleRow(
+                label: "Sale completion sound",
+                subtitle: "Play voice confirmation when payment succeeds",
+                isOn: Binding(
+                    get: { appState.isSaleCompletionSoundEnabled },
+                    set: { appState.isSaleCompletionSoundEnabled = $0 }
+                )
+            )
             SettingsToggleRow(label: "Show store logo", subtitle: "Include logo in receipt header", isOn: $showLogo)
             SettingsToggleRow(label: "Include VAT breakdown", subtitle: "Show tax details on receipt", isOn: $showVAT)
         }
@@ -901,6 +1091,9 @@ struct StaffRow: View {
 
 // MARK: - About Section
 struct AboutSection: View {
+    @Environment(AppState.self) var appState
+    private let l10n = L10n.shared
+
     var body: some View {
         SettingsCard(title: "Application", icon: "info.circle.fill", color: AppTheme.textSecondary) {
             SettingsRow(label: "Version", value: AppInfo.version)
@@ -908,6 +1101,42 @@ struct AboutSection: View {
             SettingsRow(label: "Bundle ID", value: AppInfo.bundleIdentifier)
             SettingsRow(label: "Platform", value: "iPadOS 17+")
             SettingsRow(label: "API Version", value: "v1")
+        }
+
+        SettingsCard(title: l10n.lastManagerApprovals, icon: "person.badge.key.fill", color: AppTheme.warning) {
+            if appState.managerApprovalLog.isEmpty {
+                Text(l10n.noManagerApprovals)
+                    .font(AppTheme.caption())
+                    .foregroundColor(AppTheme.textMuted)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(appState.managerApprovalLog.prefix(8)) { entry in
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "checkmark.shield.fill")
+                            .foregroundColor(AppTheme.warning)
+                            .frame(width: 20)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(entry.action)
+                                .font(AppTheme.caption(13))
+                                .foregroundColor(AppTheme.textPrimary)
+                            Text("\(l10n.approvedBy): \(entry.managerName)")
+                                .font(AppTheme.caption(11))
+                                .foregroundColor(AppTheme.textSecondary)
+                            Text("\(l10n.approvedAt): \(formattedApprovalDate(entry.approvedAt))")
+                                .font(AppTheme.caption(11))
+                                .foregroundColor(AppTheme.textMuted)
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .overlay(alignment: .bottom) {
+                        Rectangle().fill(AppTheme.border.opacity(0.5)).frame(height: 0.5).padding(.leading, 20)
+                    }
+                }
+            }
         }
 
         VStack(spacing: 8) {
@@ -922,5 +1151,13 @@ struct AboutSection: View {
         }
         .frame(maxWidth: .infinity)
         .padding(28)
+    }
+
+    private func formattedApprovalDate(_ iso: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        guard let date = formatter.date(from: iso) else { return iso }
+        let output = DateFormatter()
+        output.dateFormat = "dd MMM yyyy, HH:mm"
+        return output.string(from: date)
     }
 }

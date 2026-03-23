@@ -24,40 +24,41 @@ extension Color {
 
 enum AppTheme {
     // MARK: - Theme Mode (toggled from AppState/Settings)
-    static var isDark: Bool = true
+    static var isDark: Bool = false
 
     // MARK: Backgrounds
-    static var bg:        Color { isDark ? Color(hex: "080B14") : Color(hex: "F5F7FF") }
-    static var surface:   Color { isDark ? Color(hex: "0E1120") : Color(hex: "ECEFFE") }
-    static var card:      Color { isDark ? Color(hex: "141826") : Color(hex: "FFFFFF") }
-    static var cardHover: Color { isDark ? Color(hex: "1A2035") : Color(hex: "F0F2FF") }
-    static var border:    Color { isDark ? Color(hex: "222840") : Color(hex: "DDE1F0") }
+    static var bg:        Color { isDark ? Color(hex: "080B14") : Color(hex: "F4ECE1") }
+    static var surface:   Color { isDark ? Color(hex: "0E1120") : Color(hex: "FBF6EE") }
+    static var card:      Color { isDark ? Color(hex: "141826") : Color(hex: "FFFDFC") }
+    static var cardHover: Color { isDark ? Color(hex: "1A2035") : Color(hex: "F2E6D6") }
+    static var border:    Color { isDark ? Color(hex: "222840") : Color(hex: "E8D9C6") }
+    static var shadow:    Color { isDark ? Color.black.opacity(0.28) : Color(hex: "8B6B4A").opacity(0.14) }
 
     // MARK: Accent
-    static let accent    = Color(hex: "6366F1")   // Indigo — same in both modes
-    static let accent2   = Color(hex: "818CF8")   // Soft indigo
+    static let accent    = Color(hex: "C96E43")
+    static let accent2   = Color(hex: "E3A76A")
     static let accentGrad = LinearGradient(
-        colors: [Color(hex: "6366F1"), Color(hex: "A78BFA")],
+        colors: [Color(hex: "B85F39"), Color(hex: "E4A35A")],
         startPoint: .topLeading, endPoint: .bottomTrailing)
     static let accentGradH = LinearGradient(
-        colors: [Color(hex: "6366F1"), Color(hex: "A78BFA")],
+        colors: [Color(hex: "B85F39"), Color(hex: "E4A35A")],
         startPoint: .leading, endPoint: .trailing)
 
     // MARK: Semantic
-    static let success  = Color(hex: "10D9A0")
-    static let warning  = Color(hex: "FBBF24")
-    static let danger   = Color(hex: "F87171")
-    static let info     = Color(hex: "38BDF8")
+    static let success  = Color(hex: "1E9B72")
+    static let warning  = Color(hex: "D4932D")
+    static let danger   = Color(hex: "D45B4B")
+    static let info     = Color(hex: "3E7EA5")
 
     // MARK: Text
-    static var textPrimary:   Color { isDark ? Color.white          : Color(hex: "0F172A") }
-    static var textSecondary: Color { isDark ? Color(hex: "94A3B8") : Color(hex: "475569") }
-    static var textMuted:     Color { isDark ? Color(hex: "475569") : Color(hex: "94A3B8") }
+    static var textPrimary:   Color { isDark ? Color.white            : Color(hex: "2A201A") }
+    static var textSecondary: Color { isDark ? Color(hex: "94A3B8") : Color(hex: "6A584A") }
+    static var textMuted:     Color { isDark ? Color(hex: "475569") : Color(hex: "A49383") }
 
     // MARK: Special
-    static let cash     = Color(hex: "22D3A5")
-    static let card_pay = Color(hex: "818CF8")
-    static let mada     = Color(hex: "38BDF8")
+    static let cash     = Color(hex: "2CA07A")
+    static let card_pay = Color(hex: "5A7EC2")
+    static let mada     = Color(hex: "3A97A7")
     static var apple:   Color { isDark ? Color(hex: "E2E8F0") : Color(hex: "1C1C1E") }
 
     // MARK: Corner Radii
@@ -102,6 +103,7 @@ struct ThemeCard: ViewModifier {
             .cornerRadius(AppTheme.r16)
             .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
                 .strokeBorder(AppTheme.border, lineWidth: 1))
+            .shadow(color: AppTheme.shadow, radius: 18, y: 8)
     }
 }
 
@@ -111,10 +113,10 @@ struct GlassCard: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(.ultraThinMaterial)
-            .background(AppTheme.card.opacity(0.85))
+            .background(AppTheme.card.opacity(AppTheme.isDark ? 0.85 : 0.72))
             .cornerRadius(cornerRadius)
             .overlay(RoundedRectangle(cornerRadius: cornerRadius)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+                .strokeBorder(AppTheme.border.opacity(0.7), lineWidth: 1))
     }
 }
 
@@ -130,6 +132,7 @@ struct PrimaryButtonStyle: ButtonStyle {
             .padding(.vertical, 14)
             .background(AppTheme.accentGradH)
             .cornerRadius(AppTheme.r12)
+            .shadow(color: AppTheme.accent.opacity(0.22), radius: 14, y: 7)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
     }
@@ -143,7 +146,7 @@ struct GhostButtonStyle: ButtonStyle {
             .foregroundColor(AppTheme.accent)
             .padding(.horizontal, 24)
             .padding(.vertical, 14)
-            .background(AppTheme.accent.opacity(configuration.isPressed ? 0.15 : 0.08))
+            .background(configuration.isPressed ? AppTheme.cardHover : AppTheme.card)
             .cornerRadius(AppTheme.r12)
             .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
                 .strokeBorder(AppTheme.accent.opacity(0.4), lineWidth: 1))
@@ -202,7 +205,7 @@ struct ShimmerModifier: ViewModifier {
             .overlay(
                 GeometryReader { geo in
                     LinearGradient(
-                        colors: [.clear, Color.white.opacity(0.06), .clear],
+                        colors: [.clear, Color.white.opacity(AppTheme.isDark ? 0.08 : 0.45), .clear],
                         startPoint: .leading, endPoint: .trailing)
                     .frame(width: geo.size.width * 2)
                     .offset(x: phase * geo.size.width * 2)

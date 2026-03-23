@@ -7,6 +7,65 @@ enum APIConfig {
         UserDefaults.standard.string(forKey: "api_base_url") ?? "http://localhost:8000"
     }
     static var apiV1: String { "\(baseURL)/api/v1" }
+    static var publicBaseURL: String { baseURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
+
+    static func isLoopbackURL(_ urlString: String) -> Bool {
+        guard let host = URL(string: urlString)?.host?.lowercased() else { return false }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1"
+    }
+
+    static var shouldWarnAboutLoopbackBaseURL: Bool {
+#if targetEnvironment(simulator)
+        false
+#else
+        isLoopbackURL(baseURL)
+#endif
+    }
+
+    static func shouldWarnAboutLoopback(_ urlString: String) -> Bool {
+#if targetEnvironment(simulator)
+        false
+#else
+        isLoopbackURL(urlString)
+#endif
+    }
+
+    static func resolvedMediaURLString(_ rawURL: String?) -> String? {
+        guard let rawURL else { return nil }
+        let trimmed = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        guard let parsed = URL(string: trimmed) else {
+            if trimmed.hasPrefix("/") {
+                return publicBaseURL + trimmed
+            }
+            return publicBaseURL + "/" + trimmed
+        }
+
+        if parsed.scheme == nil || parsed.host == nil {
+            let path = trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
+            return publicBaseURL + path
+        }
+
+        let shouldRebaseHost = ["backend_superadmin", "ampos_backend_superadmin"].contains(parsed.host?.lowercased() ?? "")
+            || isLoopbackURL(trimmed)
+
+        guard shouldRebaseHost,
+              let base = URL(string: publicBaseURL),
+              var components = URLComponents(url: parsed, resolvingAgainstBaseURL: false) else {
+            return trimmed
+        }
+
+        components.scheme = base.scheme
+        components.host = base.host
+        components.port = base.port
+        return components.url?.absoluteString ?? trimmed
+    }
+
+    static func resolvedMediaURL(_ rawURL: String?) -> URL? {
+        guard let absolute = resolvedMediaURLString(rawURL) else { return nil }
+        return URL(string: absolute)
+    }
 }
 
 // MARK: - HTTP Method
@@ -20,6 +79,22 @@ final class APIService {
 
     static let shared = APIService()
     private init() {}
+
+    private func validateRuntimeBaseURL() throws {
+#if targetEnvironment(simulator)
+        return
+#else
+        guard !APIConfig.shouldWarnAboutLoopbackBaseURL else {
+            throw NSError(
+                domain: "APIConfig",
+                code: URLError.cannotConnectToHost.rawValue,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "Backend is set to localhost. On a physical iPad, localhost points to the iPad itself. Update the server address to your Mac or server LAN IP, for example http://192.168.1.100:8000."
+                ]
+            )
+        }
+#endif
+    }
 
     // MARK: Token Storage (Keychain — secure; tenantSlug is non-sensitive and stays in UserDefaults)
     private let tokenKey        = "pos_access_token"
@@ -52,8 +127,10 @@ final class APIService {
         method: HTTPMethod = .get,
         body: Encodable? = nil,
         formData: [String: String]? = nil,
-        requiresAuth: Bool = true
+        requiresAuth: Bool = true,
+        accessTokenOverride: String? = nil
     ) async throws -> T {
+        try validateRuntimeBaseURL()
         guard let url = URL(string: APIConfig.apiV1 + path) else {
             throw URLError(.badURL)
         }
@@ -61,7 +138,7 @@ final class APIService {
         req.httpMethod = method.rawValue
         req.timeoutInterval = 30
 
-        if requiresAuth, let token = accessToken {
+        if requiresAuth, let token = accessTokenOverride ?? accessToken {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
@@ -84,10 +161,11 @@ final class APIService {
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
 
         // Auto-refresh on 401
-        if http.statusCode == 401, let refresh = refreshToken {
+        if http.statusCode == 401, accessTokenOverride == nil, let refresh = refreshToken {
             try await refreshAccessToken(refresh)
             return try await request(path: path, method: method, body: body,
-                                     formData: formData, requiresAuth: requiresAuth)
+                                     formData: formData, requiresAuth: requiresAuth,
+                                     accessTokenOverride: accessTokenOverride)
         }
 
         guard (200..<300).contains(http.statusCode) else {
@@ -106,6 +184,7 @@ final class APIService {
         method: HTTPMethod = .post,
         body: Encodable? = nil
     ) async throws {
+        try validateRuntimeBaseURL()
         guard let url = URL(string: APIConfig.apiV1 + path) else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
         req.httpMethod = method.rawValue
@@ -128,12 +207,13 @@ final class APIService {
     }
 
     // MARK: Raw data helper (returns raw Data, auth-aware)
-    private func rawData(path: String, method: HTTPMethod, body: Encodable?) async throws -> Data {
+    private func rawData(path: String, method: HTTPMethod, body: Encodable?, accessTokenOverride: String? = nil) async throws -> Data {
+        try validateRuntimeBaseURL()
         guard let url = URL(string: APIConfig.apiV1 + path) else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
         req.httpMethod = method.rawValue
         req.timeoutInterval = 30
-        if let token = accessToken {
+        if let token = accessTokenOverride ?? accessToken {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         if let slug = tenantSlug {
@@ -145,9 +225,9 @@ final class APIService {
         }
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-        if http.statusCode == 401, let refresh = refreshToken {
+        if http.statusCode == 401, accessTokenOverride == nil, let refresh = refreshToken {
             try await refreshAccessToken(refresh)
-            return try await rawData(path: path, method: method, body: body)
+            return try await rawData(path: path, method: method, body: body, accessTokenOverride: accessTokenOverride)
         }
         guard (200..<300).contains(http.statusCode) else {
             let apiErr = try? JSONDecoder().decode(APIError.self, from: data)
@@ -163,6 +243,7 @@ final class APIService {
         method: HTTPMethod = .get,
         body: Encodable? = nil
     ) async throws -> Any {
+        try validateRuntimeBaseURL()
         guard let url = URL(string: APIConfig.apiV1 + path) else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
         req.httpMethod = method.rawValue
@@ -188,6 +269,7 @@ final class APIService {
             let access_token: String
             let refresh_token: String?
         }
+        try validateRuntimeBaseURL()
         guard let url = URL(string: APIConfig.apiV1 + "/auth/refresh") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -208,6 +290,10 @@ final class APIService {
     func loginWithPIN(email: String, pin: String) async throws -> TokenResponse {
         let body = LoginPINRequest(email: email, pin: pin)
         return try await request(path: "/auth/login-pin", method: .post, body: body, requiresAuth: false)
+    }
+
+    func fetchPOSUsers() async throws -> [POSUserPreview] {
+        return try await request(path: "/auth/pos-users", requiresAuth: false)
     }
 
     func logout() {
@@ -368,13 +454,30 @@ final class APIService {
         return try await request(path: "/shifts/\(shiftId)/summary")
     }
 
-    func getShiftSummary(_ shiftId: String) async throws -> Shift {
+    func addCashDrop(shiftId: String, amount: Double, notes: String?, isBlind: Bool = true) async throws {
+        let body = CashDropRequest(amount: amount, notes: notes, isBlind: isBlind)
+        try await requestVoid(path: "/shifts/\(shiftId)/cash-drop", method: .post, body: body)
+    }
+
+    func getShiftSummary(_ shiftId: String) async throws -> ShiftSummary {
         return try await request(path: "/shifts/\(shiftId)/summary")
     }
 
     // MARK: Reports
-    func fetchDashboard(range: String = "7d") async throws -> DashboardSummary {
-        return try await request(path: "/reports/dashboard?range=\(range)")
+    func fetchDashboard(range: String = "7d", authToken: String? = nil) async throws -> DashboardSummary {
+        return try await request(path: "/reports/dashboard?range=\(range)", accessTokenOverride: authToken)
+    }
+
+    func fetchPaymentsSummary(range: String = "7d", authToken: String? = nil) async throws -> [PaymentSummaryRow] {
+        return try await request(path: "/reports/payments-summary?\(dateRangeQuery(range: range))", accessTokenOverride: authToken)
+    }
+
+    func fetchZATCAReport(range: String = "7d", authToken: String? = nil) async throws -> ZATCAReport {
+        return try await request(path: "/reports/zatca?\(dateRangeQuery(range: range))", accessTokenOverride: authToken)
+    }
+
+    func fetchTopProducts(limit: Int = 10, range: String = "7d", authToken: String? = nil) async throws -> [TopProduct] {
+        return try await request(path: "/reports/top-products?limit=\(limit)&range=\(range)", accessTokenOverride: authToken)
     }
 
     // MARK: Settings
@@ -383,7 +486,16 @@ final class APIService {
     }
 
     func updateSettings(_ settings: AppSettings) async throws -> AppSettings {
-        return try await request(path: "/settings", method: .put, body: settings)
+        try await requestVoid(path: "/settings", method: .put, body: settings)
+        return try await fetchSettings()
+    }
+
+    func fetchBroadcasts() async throws -> BroadcastsResponse {
+        return try await request(path: "/settings/broadcasts")
+    }
+
+    func dismissBroadcast(_ broadcastId: String) async throws {
+        try await requestVoid(path: "/settings/broadcasts/\(broadcastId)/dismiss", method: .post)
     }
 
     // MARK: Staff
@@ -411,5 +523,28 @@ final class APIService {
     func syncOfflineBatch(_ orders: [OrderCreate]) async throws -> [[String: Any]] {
         let result = try await requestAny(path: "/orders/sync-batch", method: .post, body: orders)
         return result as? [[String: Any]] ?? []
+    }
+
+    private func dateRangeQuery(range: String) -> String {
+        let now = Date()
+        let start = reportStartDate(for: range, now: now)
+        let formatter = ISO8601DateFormatter()
+        let from = formatter.string(from: start).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let to = formatter.string(from: now).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return "date_from=\(from)&date_to=\(to)"
+    }
+
+    private func reportStartDate(for range: String, now: Date) -> Date {
+        let calendar = Calendar(identifier: .gregorian)
+        switch range {
+        case "1d":
+            return calendar.startOfDay(for: now)
+        case "30d":
+            return calendar.date(byAdding: .day, value: -30, to: now) ?? now
+        case "90d":
+            return calendar.date(byAdding: .day, value: -90, to: now) ?? now
+        default:
+            return calendar.date(byAdding: .day, value: -7, to: now) ?? now
+        }
     }
 }

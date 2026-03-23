@@ -16,6 +16,8 @@ final class OfflineManager {
     var isOnline = true
     var pendingCount = 0
     var isSyncing = false
+    var lastSyncAt: Date?
+    var lastSyncError: String?
 
     private init() {
         loadPending()
@@ -28,12 +30,17 @@ final class OfflineManager {
             Task { @MainActor in
                 let wasOffline = self?.isOnline == false
                 self?.isOnline = path.status == .satisfied
+                AppState.shared.syncManagerSnapshotWithLocalState()
                 if wasOffline && path.status == .satisfied {
                     await self?.syncPendingOrders()
                 }
             }
         }
         monitor.start(queue: queue)
+        Task { @MainActor in
+            self.isOnline = monitor.currentPath.status == .satisfied
+            AppState.shared.syncManagerSnapshotWithLocalState()
+        }
     }
 
     // MARK: - Persistence
@@ -55,6 +62,10 @@ final class OfflineManager {
         pendingCount = pendingOrders.filter { !$0.synced }.count
     }
 
+    var queueSnapshot: [OfflineOrder] {
+        pendingOrders.sorted { $0.createdAt > $1.createdAt }
+    }
+
     // MARK: - Queue Order for Later Sync
     func queueOrder(_ order: OrderCreate, paymentMethod: String, cashTendered: Double?) {
         var orders = pendingOrders
@@ -69,6 +80,8 @@ final class OfflineManager {
         pendingOrders = orders
         // Schedule offline sync reminder (fires after 10 minutes if still offline)
         NotificationManager.shared.scheduleOfflineSyncAlert(pendingCount: pendingCount)
+        NotificationManager.shared.notifyOfflineBacklogThreshold(pendingCount: pendingCount)
+        AppState.shared.syncManagerSnapshotWithLocalState()
     }
 
     // MARK: - Sync All Pending
@@ -78,6 +91,8 @@ final class OfflineManager {
         guard !unsynced.isEmpty else { return }
 
         isSyncing = true
+        lastSyncError = nil
+        AppState.shared.syncManagerSnapshotWithLocalState()
         var orders = pendingOrders
 
         for pending in unsynced {
@@ -98,6 +113,7 @@ final class OfflineManager {
                 }
             } catch {
                 print("[OfflineSync] Failed to sync order \(pending.localId): \(error)")
+                lastSyncError = error.localizedDescription
                 // Leave unsynced for next try
             }
         }
@@ -110,11 +126,23 @@ final class OfflineManager {
             pendingOrders = orders.filter { o in !toRemove.contains(where: { $0.localId == o.localId }) }
         }
         isSyncing = false
+        lastSyncAt = Date()
         // If all orders are now synced, cancel the pending notification
         if pendingCount == 0 {
             NotificationManager.shared.cancelOfflineSyncAlert()
+            NotificationManager.shared.cancelOfflineSyncFailureAlert()
+        } else if lastSyncError != nil {
+            NotificationManager.shared.notifyOfflineSyncFailure(
+                pendingCount: pendingCount,
+                message: lastSyncError
+            )
         }
+        AppState.shared.syncManagerSnapshotWithLocalState()
         BGRefreshManager.scheduleSync()
+    }
+
+    func retrySyncNow() async {
+        await syncPendingOrders()
     }
 }
 

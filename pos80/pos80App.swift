@@ -20,6 +20,7 @@ extension Notification.Name {
 @main
 struct pos80App: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @State private var appState = AppState.shared
 
     init() {
@@ -40,6 +41,7 @@ struct pos80App: App {
             ContentView()
                 .environment(appState)
                 .preferredColorScheme(appState.isDark ? .dark : .light)
+                .task { await appState.refreshManagerSnapshot() }
                 .onContinueUserActivity(CSSearchableItemActionType) { activity in
                     guard let id = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String else { return }
                     appState.spotlightOrderId = id
@@ -51,6 +53,10 @@ struct pos80App: App {
                     appState.spotlightOrderId = orderId
                     appState.selectedTab = .orders
                     if appState.destination != .main { appState.destination = .main }
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    guard newPhase == .active else { return }
+                    Task { await appState.refreshManagerSnapshot() }
                 }
         }
 

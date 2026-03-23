@@ -6,8 +6,36 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		EAB100012F67000100439AFB /* pos80ManagerWidgetExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = EAB100032F67000100439AFB /* pos80ManagerWidgetExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		EAB100052F67000100439AFB /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EAAAA6182F65620200439AFB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EAB100102F67000100439AFB;
+			remoteInfo = pos80ManagerWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		EAB100022F67000100439AFB /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				EAB100012F67000100439AFB /* pos80ManagerWidgetExtension.appex in Embed App Extensions */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		EAAAA6202F65620200439AFB /* pos80.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = pos80.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		EAB100032F67000100439AFB /* pos80ManagerWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = pos80ManagerWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +44,22 @@
 			path = pos80;
 			sourceTree = "<group>";
 		};
+		EAB100042F67000100439AFB /* pos80ManagerWidgetExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = pos80ManagerWidgetExtension;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		EAAAA61D2F65620200439AFB /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EAB100082F67000100439AFB /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +73,7 @@
 			isa = PBXGroup;
 			children = (
 				EAAAA6222F65620200439AFB /* pos80 */,
+				EAB100042F67000100439AFB /* pos80ManagerWidgetExtension */,
 				EAAAA6212F65620200439AFB /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +82,7 @@
 			isa = PBXGroup;
 			children = (
 				EAAAA6202F65620200439AFB /* pos80.app */,
+				EAB100032F67000100439AFB /* pos80ManagerWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -55,10 +97,12 @@
 				EAAAA61C2F65620200439AFB /* Sources */,
 				EAAAA61D2F65620200439AFB /* Frameworks */,
 				EAAAA61E2F65620200439AFB /* Resources */,
+				EAB100022F67000100439AFB /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				EAB100062F67000100439AFB /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				EAAAA6222F65620200439AFB /* pos80 */,
@@ -69,6 +113,28 @@
 			productName = pos80;
 			productReference = EAAAA6202F65620200439AFB /* pos80.app */;
 			productType = "com.apple.product-type.application";
+		};
+		EAB100102F67000100439AFB /* pos80ManagerWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EAB100112F67000100439AFB /* Build configuration list for PBXNativeTarget "pos80ManagerWidgetExtension" */;
+			buildPhases = (
+				EAB100072F67000100439AFB /* Sources */,
+				EAB100082F67000100439AFB /* Frameworks */,
+				EAB100092F67000100439AFB /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				EAB100042F67000100439AFB /* pos80ManagerWidgetExtension */,
+			);
+			name = pos80ManagerWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = pos80ManagerWidgetExtension;
+			productReference = EAB100032F67000100439AFB /* pos80ManagerWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -81,6 +147,9 @@
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
 					EAAAA61F2F65620200439AFB = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					EAB100102F67000100439AFB = {
 						CreatedOnToolsVersion = 26.3;
 					};
 				};
@@ -100,12 +169,20 @@
 			projectRoot = "";
 			targets = (
 				EAAAA61F2F65620200439AFB /* pos80 */,
+				EAB100102F67000100439AFB /* pos80ManagerWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		EAAAA61E2F65620200439AFB /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EAB100092F67000100439AFB /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +199,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EAB100072F67000100439AFB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		EAB100062F67000100439AFB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EAB100102F67000100439AFB /* pos80ManagerWidgetExtension */;
+			targetProxy = EAB100052F67000100439AFB /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		EAAAA6292F65620300439AFB /* Debug */ = {
@@ -251,8 +343,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = pos80/pos80.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Q53GD759DQ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -266,7 +359,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3.1;
+				MARKETING_VERSION = 1.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ahmadmdm.pos.pos80;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -284,8 +377,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = pos80/pos80.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Q53GD759DQ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -299,9 +393,67 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3.1;
+				MARKETING_VERSION = 1.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ahmadmdm.pos.pos80;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		EAB100122F67000100439AFB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = pos80ManagerWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = Q53GD759DQ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = pos80ManagerWidgetInfo.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.4.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ahmadmdm.pos.pos80.managerwidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		EAB100132F67000100439AFB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = pos80ManagerWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = Q53GD759DQ;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = pos80ManagerWidgetInfo.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.4.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ahmadmdm.pos.pos80.managerwidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -329,6 +481,15 @@
 			buildConfigurations = (
 				EAAAA62C2F65620300439AFB /* Debug */,
 				EAAAA62D2F65620300439AFB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		EAB100112F67000100439AFB /* Build configuration list for PBXNativeTarget "pos80ManagerWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EAB100122F67000100439AFB /* Debug */,
+				EAB100132F67000100439AFB /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

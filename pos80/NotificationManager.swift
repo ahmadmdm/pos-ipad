@@ -6,6 +6,9 @@ import UserNotifications
 final class NotificationManager {
 
     static let shared = NotificationManager()
+    private let offlineSyncAlertIdentifier = "offline-sync-alert"
+    private let syncFailureIdentifier = "offline-sync-failed"
+    private let backlogWarningPrefix = "offline-backlog-"
     private init() {}
 
     // MARK: - Permission
@@ -54,7 +57,7 @@ final class NotificationManager {
     /// Cancels any prior alert and schedules a fresh one.
     func scheduleOfflineSyncAlert(pendingCount: Int) {
         let center = UNUserNotificationCenter.current()
-        center.removePendingNotificationRequests(withIdentifiers: ["offline-sync-alert"])
+        center.removePendingNotificationRequests(withIdentifiers: [offlineSyncAlertIdentifier])
         guard pendingCount > 0 else { return }
 
         let content = UNMutableNotificationContent()
@@ -65,7 +68,7 @@ final class NotificationManager {
         // Fire after 10 minutes offline
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 600, repeats: false)
         let request = UNNotificationRequest(
-            identifier: "offline-sync-alert",
+            identifier: offlineSyncAlertIdentifier,
             content: content,
             trigger: trigger
         )
@@ -74,7 +77,50 @@ final class NotificationManager {
 
     func cancelOfflineSyncAlert() {
         UNUserNotificationCenter.current()
-            .removePendingNotificationRequests(withIdentifiers: ["offline-sync-alert"])
+            .removePendingNotificationRequests(withIdentifiers: [offlineSyncAlertIdentifier])
+    }
+
+    func notifyOfflineBacklogThreshold(pendingCount: Int) {
+        guard pendingCount >= 5 else { return }
+        guard pendingCount == 5 || pendingCount % 10 == 0 else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "تراكم طلبات غير متزامنة"
+        content.body = "لديك \(pendingCount) طلبات غير متزامنة. راجع الاتصال والمزامنة قبل استمرار التراكم."
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: "\(backlogWarningPrefix)\(pendingCount)",
+            content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    func notifyOfflineSyncFailure(pendingCount: Int, message: String?) {
+        let center = UNUserNotificationCenter.current()
+        center.removePendingNotificationRequests(withIdentifiers: [syncFailureIdentifier])
+
+        let content = UNMutableNotificationContent()
+        content.title = "فشل مزامنة الطلبات"
+        if let message, !message.isEmpty {
+            content.body = "تعذر إرسال \(pendingCount) طلبات. \(message)"
+        } else {
+            content.body = "تعذر إرسال \(pendingCount) طلبات محفوظة بدون اتصال. راجع الشبكة ثم أعد المحاولة."
+        }
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: syncFailureIdentifier,
+            content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        )
+        center.add(request)
+    }
+
+    func cancelOfflineSyncFailureAlert() {
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: [syncFailureIdentifier])
     }
 
     // MARK: - Payment Confirmation (Instant)

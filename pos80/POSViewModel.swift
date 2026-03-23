@@ -75,6 +75,10 @@ final class POSViewModel {
     // MARK: Load Menu (with offline fallback to local cache)
     func loadMenu() async {
         isMenuLoading = true
+        loadMenuFromCache()
+        if selectedCategory == nil, let first = categories.first {
+            selectedCategory = first
+        }
         do {
             async let cats  = api.fetchCategories()
             async let prods = api.fetchProducts(availableOnly: false)
@@ -85,12 +89,6 @@ final class POSViewModel {
             if let catData  = try? JSONEncoder().encode(c) { UserDefaults.standard.set(catData,  forKey: cachedCategoriesKey) }
             if let prodData = try? JSONEncoder().encode(p) { UserDefaults.standard.set(prodData, forKey: cachedProductsKey) }
         } catch {
-            // Offline or server error — try local cache
-            if !categories.isEmpty || !products.isEmpty {
-                // Already loaded (e.g., refresh attempt), keep current data
-            } else {
-                loadMenuFromCache()
-            }
             if !categories.isEmpty {
                 // Cache was found, no need to show error
             } else {
@@ -256,6 +254,7 @@ final class POSViewModel {
 
         clearCart()
         appState.showSuccess("Order saved offline. Will sync when online.")
+        appState.syncManagerSnapshotWithLocalState()
     }
 
     // MARK: Pay Order
@@ -285,6 +284,7 @@ final class POSViewModel {
             lastCompletedOrderQR = localInv.qrCodeBase64
             clearCart()
             appState.showSuccess("Payment successful! Order #\(paid.displayNumber ?? 0)")
+            await appState.refreshManagerSnapshot()
             isProcessingPayment = false
             return true
         } catch {
@@ -384,6 +384,7 @@ final class POSViewModel {
             lastCompletedOrder = order
             clearCart()
             appState.showSuccess("Split payment successful! Order #\(order.displayNumber ?? 0)")
+            await appState.refreshManagerSnapshot()
             isProcessingPayment = false
             return true
         } catch {

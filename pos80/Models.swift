@@ -29,6 +29,33 @@ struct LoginPINRequest: Codable {
     let pin: String
 }
 
+struct POSUserPreview: Codable, Identifiable {
+    let id: String
+    let email: String
+    let nameEn: String
+    let nameAr: String
+    let role: String
+    let avatarURL: String?
+    let branchId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, email, role
+        case nameEn = "name_en"
+        case nameAr = "name_ar"
+        case avatarURL = "avatar_url"
+        case branchId = "branch_id"
+    }
+
+    var displayName: String {
+        let primary = nameEn.trimmingCharacters(in: .whitespacesAndNewlines)
+        return primary.isEmpty ? email : primary
+    }
+
+    var isManager: Bool {
+        role == "manager" || role == "owner" || role == "super_admin"
+    }
+}
+
 // MARK: - Category
 struct ProductCategory: Codable, Identifiable {
     let id: String
@@ -45,6 +72,10 @@ struct ProductCategory: Codable, Identifiable {
         case descriptionAr = "description_ar", descriptionEn = "description_en"
         case imageUrl = "image_url"
         case sortOrder = "sort_order"
+    }
+
+    var resolvedImageURL: URL? {
+        APIConfig.resolvedMediaURL(imageUrl)
     }
 }
 
@@ -79,6 +110,10 @@ struct Product: Codable, Identifiable {
         case prepTimeMinutes = "prep_time_minutes"
         case isAvailable = "is_available"
         case modifiers
+    }
+
+    var resolvedImageURL: URL? {
+        APIConfig.resolvedMediaURL(imageUrl)
     }
 }
 
@@ -533,6 +568,77 @@ struct CloseShiftRequest: Codable {
     }
 }
 
+struct CashDropRequest: Codable {
+    let amount: Double
+    let notes: String?
+    let isBlind: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case amount, notes
+        case isBlind = "is_blind"
+    }
+}
+
+struct ShiftCashDrop: Codable, Identifiable {
+    var id: String { "\(createdAt ?? UUID().uuidString)-\(amount)" }
+    let amount: Double
+    let notes: String?
+    let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case amount, notes
+        case createdAt = "created_at"
+    }
+}
+
+struct ShiftSummaryOrder: Codable, Identifiable {
+    let id: String
+    let orderNumber: String?
+    let total: Double
+    let paymentMethod: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, total
+        case orderNumber = "order_number"
+        case paymentMethod = "payment_method"
+    }
+}
+
+struct ShiftSummary: Codable, Identifiable {
+    let id: String
+    let status: String?
+    let openingCash: Double
+    let closingCash: Double?
+    let expectedCash: Double?
+    let cashDifference: Double?
+    let totalSales: Double?
+    let totalOrders: Int?
+    let totalCashSales: Double?
+    let totalCardSales: Double?
+    let totalVat: Double?
+    let openedAt: String?
+    let closedAt: String?
+    let notes: String?
+    let cashDrops: [ShiftCashDrop]
+    let orders: [ShiftSummaryOrder]
+
+    enum CodingKeys: String, CodingKey {
+        case id, status, notes, orders
+        case openingCash = "opening_cash"
+        case closingCash = "closing_cash"
+        case expectedCash = "expected_cash"
+        case cashDifference = "cash_difference"
+        case totalSales = "total_sales"
+        case totalOrders = "total_orders"
+        case totalCashSales = "total_cash_sales"
+        case totalCardSales = "total_card_sales"
+        case totalVat = "total_vat"
+        case openedAt = "opened_at"
+        case closedAt = "closed_at"
+        case cashDrops = "cash_drops"
+    }
+}
+
 // MARK: - Reports / Dashboard
 struct DashboardSummary: Codable {
     let totalRevenue: Double
@@ -613,6 +719,26 @@ struct TopProduct: Codable, Identifiable {
     }
 }
 
+struct PaymentSummaryRow: Codable, Identifiable {
+    var id: String { method }
+    let method: String
+    let count: Int
+    let total: Double
+    let vat: Double
+}
+
+struct ZATCAReport: Codable {
+    let totalInvoices: Int
+    let totalVatCollected: Double
+    let byStatus: [String: Int]
+
+    enum CodingKeys: String, CodingKey {
+        case totalInvoices = "total_invoices"
+        case totalVatCollected = "total_vat_collected"
+        case byStatus = "by_status"
+    }
+}
+
 // MARK: - Settings
 struct AppSettings: Codable {
     var receiptPrinterIp: String?
@@ -638,6 +764,30 @@ struct AppSettings: Codable {
         case paperSize = "paper_size"
         case receiptFontSize = "receipt_font_size"
         case printMode = "print_mode"
+    }
+}
+
+struct BroadcastsResponse: Codable {
+    let items: [BroadcastItem]
+    let unreadCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case items
+        case unreadCount = "unread_count"
+    }
+}
+
+struct BroadcastItem: Codable, Identifiable {
+    let id: String
+    let title: String
+    let body: String
+    let audiencePlan: String?
+    let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, body
+        case audiencePlan = "audience_plan"
+        case createdAt = "created_at"
     }
 }
 

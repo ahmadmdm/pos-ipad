@@ -1,6 +1,11 @@
 // POSView.swift — Main cashier screen: product grid + cart
 import SwiftUI
 
+private enum DiscountApprovalAction {
+    case apply(Double)
+    case remove
+}
+
 struct POSView: View {
     @Environment(POSViewModel.self) var vm
     @Environment(AppState.self) var appState
@@ -12,6 +17,8 @@ struct POSView: View {
     @State private var noteInput = ""
     @State private var showNoteSheet = false
     @State private var showHeldOrders = false
+    @State private var showManagerApproval = false
+    @State private var pendingDiscountAction: DiscountApprovalAction?
     @Namespace private var animation
 
     var body: some View {
@@ -47,6 +54,16 @@ struct POSView: View {
         .sheet(isPresented: $showDiscountSheet) { discountSheet }
         .sheet(isPresented: $showNoteSheet) { noteSheet }
         .sheet(isPresented: $showHeldOrders) { heldOrdersSheet }
+        .sheet(isPresented: $showManagerApproval) {
+            if let pendingDiscountAction {
+                ManagerApprovalSheet(
+                    actionTitle: approvalTitle(for: pendingDiscountAction),
+                    message: l10n.managerApprovalRequired
+                ) { _ in
+                    performDiscountAction(pendingDiscountAction)
+                }
+            }
+        }
         .sheet(isPresented: $vm.showBarcodeScanner) {
             BarcodeScannerSheet()
                 .environment(vm)
@@ -103,73 +120,104 @@ struct POSView: View {
     // MARK: - Top Bar
     private var topBar: some View {
         @Bindable var vm = vm
-        return HStack(spacing: 12) {
-            // Search
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(AppTheme.textMuted)
-                    .font(.system(size: 15, weight: .medium))
-                TextField(l10n.searchProducts, text: $vm.searchText)
-                    .font(AppTheme.body())
-                    .foregroundColor(AppTheme.textPrimary)
-                if !vm.searchText.isEmpty {
-                    Button { vm.searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(AppTheme.textMuted)
-                            .font(.system(size: 14))
+        return VStack(spacing: 14) {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Service Desk")
+                        .font(AppTheme.title2(28))
+                        .foregroundColor(AppTheme.textPrimary)
+                    Text(Date().formatted(date: .abbreviated, time: .omitted))
+                        .font(AppTheme.caption(12))
+                        .foregroundColor(AppTheme.textMuted)
+                }
+
+                Spacer()
+
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await vm.loadHeldOrders() }
+                        showHeldOrders = true
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundColor(vm.heldOrders.isEmpty ? AppTheme.textSecondary : AppTheme.warning)
+                                .frame(width: 44, height: 44)
+                                .background(AppTheme.card)
+                                .cornerRadius(AppTheme.r12)
+                                .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
+                                    .strokeBorder(AppTheme.border, lineWidth: 1))
+                            if !vm.heldOrders.isEmpty {
+                                Text("\(vm.heldOrders.count)")
+                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(AppTheme.warning)
+                                    .cornerRadius(8)
+                                    .offset(x: 4, y: -4)
+                            }
+                        }
+                    }
+
+                    Button {
+                        vm.showBarcodeScanner = true
+                    } label: {
+                        Image(systemName: "barcode.viewfinder")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(AppTheme.textSecondary)
+                            .frame(width: 44, height: 44)
+                            .background(AppTheme.card)
+                            .cornerRadius(AppTheme.r12)
+                            .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
+                                .strokeBorder(AppTheme.border, lineWidth: 1))
                     }
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .background(AppTheme.card)
-            .cornerRadius(AppTheme.r12)
-            .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
-                .strokeBorder(AppTheme.border, lineWidth: 1))
 
-            // Quick actions
-            Button {
-                Task { await vm.loadHeldOrders() }
-                showHeldOrders = true
-            } label: {
-                ZStack(alignment: .topTrailing) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(vm.heldOrders.isEmpty ? AppTheme.textSecondary : AppTheme.warning)
-                        .frame(width: 44, height: 44)
-                        .background(AppTheme.card)
-                        .cornerRadius(AppTheme.r12)
-                        .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
-                            .strokeBorder(AppTheme.border, lineWidth: 1))
-                    if !vm.heldOrders.isEmpty {
-                        Text("\(vm.heldOrders.count)")
-                            .font(.system(size: 10, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(AppTheme.warning)
-                            .cornerRadius(8)
-                            .offset(x: 4, y: -4)
+            HStack(spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(AppTheme.textMuted)
+                        .font(.system(size: 15, weight: .medium))
+                    TextField(l10n.searchProducts, text: $vm.searchText)
+                        .font(AppTheme.body())
+                        .foregroundColor(AppTheme.textPrimary)
+                    if !vm.searchText.isEmpty {
+                        Button { vm.searchText = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(AppTheme.textMuted)
+                                .font(.system(size: 14))
+                        }
                     }
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .background(AppTheme.card)
+                .cornerRadius(AppTheme.r12)
+                .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
+                    .strokeBorder(AppTheme.border, lineWidth: 1))
             }
 
-            Button {
-                vm.showBarcodeScanner = true
-            } label: {
-                Image(systemName: "barcode.viewfinder")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundColor(AppTheme.textSecondary)
-                    .frame(width: 44, height: 44)
-                    .background(AppTheme.card)
-                    .cornerRadius(AppTheme.r12)
-                    .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
-                        .strokeBorder(AppTheme.border, lineWidth: 1))
+            HStack(spacing: 8) {
+                PillBadge(text: vm.orderType.displayName, color: AppTheme.accent)
+                if let table = vm.selectedTable {
+                    PillBadge(text: "#\(table.number)", color: AppTheme.info)
+                }
+                if !vm.heldOrders.isEmpty {
+                    PillBadge(text: "\(vm.heldOrders.count) held", color: AppTheme.warning)
+                }
+                Spacer()
             }
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .background(AppTheme.bg)
+        .padding(.vertical, 16)
+        .background(
+            LinearGradient(
+                colors: [AppTheme.surface, AppTheme.bg],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing)
+        )
         .overlay(alignment: .bottom) {
             Rectangle().fill(AppTheme.border).frame(height: 1)
         }
@@ -202,6 +250,13 @@ struct POSView: View {
                     }
                 }
             }
+            .padding(8)
+            .background(AppTheme.surface)
+            .cornerRadius(AppTheme.r16)
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.r16)
+                    .strokeBorder(AppTheme.border, lineWidth: 1)
+            )
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
@@ -411,11 +466,8 @@ struct POSView: View {
                 ThemeTextField(icon: "tag.fill", placeholder: l10n.discountAmountSAR, text: $discountInput, keyboardType: .decimalPad)
 
                 Button {
-                    if let amount = Double(discountInput) {
-                        vm.applyDiscount(amount)
-                        showDiscountSheet = false
-                        discountInput = ""
-                    }
+                    guard let amount = Double(discountInput) else { return }
+                    requestDiscountApproval(.apply(amount))
                 } label: {
                     Text(l10n.applyDiscount)
                 }
@@ -424,8 +476,7 @@ struct POSView: View {
 
                 if vm.discountAmount > 0 {
                     Button {
-                        vm.discountAmount = 0
-                        showDiscountSheet = false
+                        requestDiscountApproval(.remove)
                     } label: {
                         Text(l10n.removeDiscount)
                     }
@@ -433,6 +484,36 @@ struct POSView: View {
                 }
             }
             .padding(24)
+        }
+    }
+
+    private func requestDiscountApproval(_ action: DiscountApprovalAction) {
+        if appState.currentUser?.isManager ?? false {
+            performDiscountAction(action)
+            return
+        }
+        pendingDiscountAction = action
+        showManagerApproval = true
+    }
+
+    private func performDiscountAction(_ action: DiscountApprovalAction) {
+        switch action {
+        case .apply(let amount):
+            vm.applyDiscount(amount)
+            discountInput = ""
+        case .remove:
+            vm.discountAmount = 0
+        }
+        pendingDiscountAction = nil
+        showDiscountSheet = false
+    }
+
+    private func approvalTitle(for action: DiscountApprovalAction) -> String {
+        switch action {
+        case .apply:
+            return l10n.applyDiscountApproval
+        case .remove:
+            return l10n.removeDiscountApproval
         }
     }
 
@@ -554,7 +635,7 @@ struct ProductCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 // Image / Color block
                 ZStack(alignment: .topTrailing) {
-                    if let imgUrl = product.imageUrl, let url = URL(string: imgUrl) {
+                    if let url = product.resolvedImageURL {
                         AsyncImage(url: url) { img in
                             img.resizable().scaledToFill()
                         } placeholder: {

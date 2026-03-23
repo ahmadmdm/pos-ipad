@@ -3,11 +3,19 @@ import SwiftUI
 import Charts
 
 struct ReportsView: View {
+    @Environment(AppState.self) var appState
     @State private var dashboard: DashboardSummary?
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var selectedRange = "7d"
     @State private var topProducts: [TopProduct] = []
+    @State private var paymentsSummary: [PaymentSummaryRow] = []
+    @State private var zatcaReport: ZATCAReport?
+    @State private var managerOverrideToken: String?
+    @State private var managerApproverName: String?
+    @State private var showManagerApproval = false
+    @State private var showShareSheet = false
+    @State private var shareItems: [Any] = []
 
     private let api = APIService.shared
     private let ranges: [(String, String, String)] = [
@@ -18,6 +26,9 @@ struct ReportsView: View {
     ]
 
     private var isArabic: Bool { L10n.shared.isArabic }
+    private var hasNativeReportAccess: Bool { appState.currentUser?.isManager ?? false }
+    private var hasUnlockedReports: Bool { hasNativeReportAccess || managerOverrideToken != nil }
+    private var reportAccessToken: String? { hasNativeReportAccess ? nil : managerOverrideToken }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -26,6 +37,8 @@ struct ReportsView: View {
 
                 if isLoading {
                     kpiLoadingState
+                } else if !hasUnlockedReports {
+                    lockedState
                 } else if let error = errorMessage {
                     errorView(error)
                 } else if dashboard != nil {
@@ -34,54 +47,118 @@ struct ReportsView: View {
                     hourlyTrendChart
                     if !topProducts.isEmpty { topProductsChart }
                     paymentBreakdown
+                    detailedPaymentSummary
+                    zatcaComplianceCard
                     orderTypeBreakdown
                 } else {
                     emptyState
                 }
             }
         }
-        .background(AppTheme.bg)
-        .task { await loadData() }
-        .onChange(of: selectedRange) { Task { await loadData() } }
+        .background(
+            LinearGradient(
+                colors: [AppTheme.bg, Color(hex: "F7EDE2")],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing)
+        )
+        .task { await reloadIfAuthorized() }
+        .onChange(of: selectedRange) { Task { await reloadIfAuthorized() } }
+        .sheet(isPresented: $showManagerApproval) {
+            ManagerApprovalSheet(
+                actionTitle: L10n.shared.managerApproval,
+                message: L10n.shared.managerOnlyReports
+            ) { result in
+                managerOverrideToken = result.token.accessToken
+                managerApproverName = L10n.shared.isArabic ? (result.manager.nameAr.isEmpty ? result.manager.displayName : result.manager.nameAr) : result.manager.displayName
+                Task { await loadData() }
+            }
+        }
+        .sheet(isPresented: $showShareSheet) {
+            ShareSheet(items: shareItems)
+        }
     }
 
     // MARK: - Header
     private var reportsHeader: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("BUSINESS HEALTH")
+                    .font(AppTheme.caption(11))
+                    .tracking(2)
+                    .foregroundColor(AppTheme.accent)
                 Text(isArabic ? "التقارير" : "Reports")
                     .font(AppTheme.title2())
                     .foregroundColor(AppTheme.textPrimary)
                 Text(isArabic ? "نظرة عامة على المبيعات والتحليلات" : "Sales & analytics overview")
                     .font(AppTheme.caption())
                     .foregroundColor(AppTheme.textMuted)
-            }
-            Spacer()
-            HStack(spacing: 4) {
-                ForEach(ranges, id: \.2) { labelEn, labelAr, value in
-                    Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            selectedRange = value
-                        }
-                    } label: {
-                        Text(isArabic ? labelAr : labelEn)
-                            .font(AppTheme.caption(12))
-                            .foregroundColor(selectedRange == value ? .white : AppTheme.textSecondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(selectedRange == value ? AppTheme.accent : AppTheme.card)
-                            .cornerRadius(8)
-                    }
+                if let managerApproverName, !hasNativeReportAccess {
+                    Text("\(L10n.shared.approvedBy): \(managerApproverName)")
+                        .font(AppTheme.caption(11))
+                        .foregroundColor(AppTheme.success)
                 }
             }
-            .padding(4)
-            .background(AppTheme.surface)
-            .cornerRadius(AppTheme.r12)
-            .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
-                .strokeBorder(AppTheme.border, lineWidth: 1))
+            Spacer()
+            VStack(alignment: .trailing, spacing: 8) {
+                HStack(spacing: 8) {
+                    if !hasUnlockedReports {
+                        Button {
+                            showManagerApproval = true
+                        } label: {
+                            Label(L10n.shared.unlockReports, systemImage: "lock.open.fill")
+                                .font(AppTheme.caption(12))
+                                .foregroundColor(AppTheme.accent)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(AppTheme.accent.opacity(0.12))
+                                .cornerRadius(8)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if hasUnlockedReports, dashboard != nil {
+                        Button {
+                            exportCurrentReports()
+                        } label: {
+                            Label(L10n.shared.shareReports, systemImage: "square.and.arrow.up")
+                                .font(AppTheme.caption(12))
+                                .foregroundColor(AppTheme.textSecondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(AppTheme.card)
+                                .cornerRadius(8)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                HStack(spacing: 4) {
+                    ForEach(ranges, id: \.2) { labelEn, labelAr, value in
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                selectedRange = value
+                            }
+                        } label: {
+                            Text(isArabic ? labelAr : labelEn)
+                                .font(AppTheme.caption(12))
+                                .foregroundColor(selectedRange == value ? .white : AppTheme.textSecondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(selectedRange == value ? AppTheme.accent : AppTheme.card)
+                                .cornerRadius(8)
+                        }
+                    }
+                }
+                .padding(4)
+                .background(AppTheme.surface)
+                .cornerRadius(AppTheme.r12)
+                .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
+                    .strokeBorder(AppTheme.border, lineWidth: 1))
+            }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
+        .background(AppTheme.surface.opacity(0.55))
         .overlay(alignment: .bottom) {
             Rectangle().fill(AppTheme.border).frame(height: 1)
         }
@@ -215,6 +292,7 @@ struct ReportsView: View {
             .cornerRadius(AppTheme.r16)
             .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
                 .strokeBorder(AppTheme.border, lineWidth: 1))
+            .shadow(color: AppTheme.shadow.opacity(0.7), radius: 18, y: 8)
             .padding(.horizontal, 24)
             .padding(.top, 20)
         }
@@ -261,6 +339,7 @@ struct ReportsView: View {
         .cornerRadius(AppTheme.r16)
         .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
             .strokeBorder(AppTheme.border, lineWidth: 1))
+        .shadow(color: AppTheme.shadow.opacity(0.7), radius: 18, y: 8)
         .padding(.horizontal, 24)
         .padding(.top, 20)
     }
@@ -331,6 +410,110 @@ struct ReportsView: View {
             .cornerRadius(AppTheme.r16)
             .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
                 .strokeBorder(AppTheme.border, lineWidth: 1))
+            .shadow(color: AppTheme.shadow.opacity(0.7), radius: 18, y: 8)
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+        }
+    }
+
+    @ViewBuilder
+    private var detailedPaymentSummary: some View {
+        if !paymentsSummary.isEmpty {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(isArabic ? "ملخص المدفوعات التفصيلي" : "Detailed Payments Summary")
+                    .font(AppTheme.headline())
+                    .foregroundColor(AppTheme.textSecondary)
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    ForEach(paymentsSummary.sorted { $0.total > $1.total }) { row in
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text(paymentMethodName(row.method))
+                                    .font(AppTheme.headline(14))
+                                    .foregroundColor(AppTheme.textPrimary)
+                                Spacer()
+                                Text(orderCountLabel(row.count))
+                                    .font(AppTheme.caption(11))
+                                    .foregroundColor(AppTheme.textMuted)
+                            }
+
+                            HStack {
+                                metricTile(
+                                    title: isArabic ? "الإجمالي" : "Total",
+                                    value: row.total.sarFormatted,
+                                    color: AppTheme.accent
+                                )
+                                metricTile(
+                                    title: isArabic ? "الضريبة" : "VAT",
+                                    value: row.vat.sarFormatted,
+                                    color: AppTheme.warning
+                                )
+                            }
+                        }
+                        .padding(16)
+                        .background(AppTheme.cardHover)
+                        .cornerRadius(AppTheme.r12)
+                    }
+                }
+            }
+            .padding(20)
+            .background(AppTheme.card)
+            .cornerRadius(AppTheme.r16)
+            .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
+                .strokeBorder(AppTheme.border, lineWidth: 1))
+            .shadow(color: AppTheme.shadow.opacity(0.7), radius: 18, y: 8)
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+        }
+    }
+
+    @ViewBuilder
+    private var zatcaComplianceCard: some View {
+        if let zatcaReport {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(isArabic ? "امتثال هيئة الزكاة" : "ZATCA Compliance")
+                    .font(AppTheme.headline())
+                    .foregroundColor(AppTheme.textSecondary)
+
+                HStack(spacing: 12) {
+                    metricTile(
+                        title: isArabic ? "الفواتير" : "Invoices",
+                        value: "\(zatcaReport.totalInvoices)",
+                        color: AppTheme.success
+                    )
+                    metricTile(
+                        title: isArabic ? "ضريبة محصلة" : "VAT Collected",
+                        value: zatcaReport.totalVatCollected.sarFormatted,
+                        color: AppTheme.warning
+                    )
+                }
+
+                if !zatcaReport.byStatus.isEmpty {
+                    FlowLayout(spacing: 10) {
+                        ForEach(zatcaReport.byStatus.keys.sorted(), id: \.self) { status in
+                            let count = zatcaReport.byStatus[status] ?? 0
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .fill(statusColor(status))
+                                    .frame(width: 8, height: 8)
+                                Text("\(statusTitle(status)): \(count)")
+                                    .font(AppTheme.caption(12))
+                                    .foregroundColor(AppTheme.textSecondary)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(AppTheme.cardHover)
+                            .cornerRadius(999)
+                        }
+                    }
+                }
+            }
+            .padding(20)
+            .background(AppTheme.card)
+            .cornerRadius(AppTheme.r16)
+            .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
+                .strokeBorder(AppTheme.border, lineWidth: 1))
+            .shadow(color: AppTheme.shadow.opacity(0.7), radius: 18, y: 8)
             .padding(.horizontal, 24)
             .padding(.top, 20)
         }
@@ -384,6 +567,7 @@ struct ReportsView: View {
             .cornerRadius(AppTheme.r16)
             .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
                 .strokeBorder(AppTheme.border, lineWidth: 1))
+            .shadow(color: AppTheme.shadow.opacity(0.7), radius: 18, y: 8)
             .padding(.horizontal, 24)
             .padding(.top, 20)
             .padding(.bottom, 32)
@@ -447,21 +631,52 @@ struct ReportsView: View {
         }
     }
 
+    private var lockedState: some View {
+        VStack(spacing: 16) {
+            Spacer().frame(height: 80)
+            Image(systemName: "lock.shield.fill")
+                .font(.system(size: 48))
+                .foregroundColor(AppTheme.warning)
+            Text(L10n.shared.managerOnlyReports)
+                .font(AppTheme.headline())
+                .foregroundColor(AppTheme.textPrimary)
+                .multilineTextAlignment(.center)
+            Button {
+                showManagerApproval = true
+            } label: {
+                Text(L10n.shared.unlockReports)
+            }
+            .buttonStyle(PrimaryButtonStyle(isFullWidth: false))
+        }
+        .padding(.horizontal, 32)
+    }
+
     // MARK: - Data Loading
     private func loadData() async {
         isLoading = true
         errorMessage = nil
+        paymentsSummary = []
+        zatcaReport = nil
         do {
-            let dash = try await api.fetchDashboard(range: selectedRange)
+            async let dashRequest = api.fetchDashboard(range: selectedRange, authToken: reportAccessToken)
+            async let paymentsRequest = try? api.fetchPaymentsSummary(range: selectedRange, authToken: reportAccessToken)
+            async let zatcaRequest = try? api.fetchZATCAReport(range: selectedRange, authToken: reportAccessToken)
+
+            let dash = try await dashRequest
             dashboard = dash
-            // Top products from dedicated endpoint (may fail for non-managers — graceful)
+            paymentsSummary = await paymentsRequest ?? []
+            zatcaReport = await zatcaRequest
             do {
-                topProducts = try await api.request(path: "/reports/top-products?limit=10&range=\(selectedRange)")
+                topProducts = try await api.fetchTopProducts(limit: 10, range: selectedRange, authToken: reportAccessToken)
             } catch {
                 topProducts = []
             }
         } catch let error as NSError {
             if error.code == 403 {
+                if !hasNativeReportAccess {
+                    managerOverrideToken = nil
+                    managerApproverName = nil
+                }
                 errorMessage = isArabic
                     ? "هذه الصفحة متاحة فقط للمدراء"
                     : "Reports require manager access."
@@ -470,6 +685,202 @@ struct ReportsView: View {
             }
         }
         isLoading = false
+    }
+
+    private func reloadIfAuthorized() async {
+        guard hasUnlockedReports else {
+            dashboard = nil
+            topProducts = []
+            paymentsSummary = []
+            zatcaReport = nil
+            errorMessage = nil
+            return
+        }
+        await loadData()
+    }
+
+    private func exportCurrentReports() {
+        guard dashboard != nil else { return }
+        do {
+            let summaryURL = try writeTempFile(named: L10n.shared.reportSummaryFile, contents: reportSummaryText())
+            let metricsURL = try writeTempFile(named: L10n.shared.reportMetricsFile, contents: metricsCSV())
+            let paymentsURL = try writeTempFile(named: L10n.shared.reportPaymentsFile, contents: paymentsCSV())
+            let productsURL = try writeTempFile(named: L10n.shared.reportProductsFile, contents: topProductsCSV())
+            let zatcaURL = try writeTempFile(named: L10n.shared.reportZATCAFile, contents: zatcaCSV())
+            let trendURL = try writeTempFile(named: L10n.shared.reportTrendFile, contents: trendsCSV())
+            let orderTypesURL = try writeTempFile(named: L10n.shared.reportOrderTypesFile, contents: orderTypesCSV())
+            shareItems = [summaryURL, metricsURL, paymentsURL, productsURL, zatcaURL, trendURL, orderTypesURL]
+            showShareSheet = true
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func writeTempFile(named name: String, contents: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        try contents.data(using: .utf8)?.write(to: url) ?? Data().write(to: url)
+        return url
+    }
+
+    private func reportSummaryText() -> String {
+        let dash = dashboard
+        let lines: [String] = [
+            isArabic ? "تقرير المبيعات" : "Sales Report",
+            "Range: \(selectedRange)",
+            "",
+            "Revenue: \((dash?.totalRevenue ?? 0).sarFormatted)",
+            "Orders: \(dash?.totalOrders ?? 0)",
+            "Avg Order Value: \((dash?.avgOrderValue ?? 0).sarFormatted)",
+            "VAT: \((dash?.totalVat ?? 0).sarFormatted)",
+            "Discounts: \((dash?.totalDiscounts ?? 0).sarFormatted)",
+            "",
+            "Payments:",
+        ]
+        let paymentLines = paymentsSummary.sorted { $0.total > $1.total }.map {
+            "- \(paymentMethodName($0.method)): \($0.total.sarFormatted) | VAT \($0.vat.sarFormatted) | \($0.count)"
+        }
+        let zatcaLines: [String]
+        if let zatcaReport {
+            zatcaLines = [
+                "",
+                "ZATCA:",
+                "Invoices: \(zatcaReport.totalInvoices)",
+                "VAT Collected: \(zatcaReport.totalVatCollected.sarFormatted)",
+            ] + zatcaReport.byStatus.keys.sorted().map { "- \(statusTitle($0)): \(zatcaReport.byStatus[$0] ?? 0)" }
+        } else {
+            zatcaLines = []
+        }
+        let productLines: [String]
+        if topProducts.isEmpty {
+            productLines = []
+        } else {
+            productLines = ["", "Top Products:"] + topProducts.prefix(10).map {
+                "- \(isArabic ? $0.nameAr : $0.nameEn): qty \($0.totalQty), revenue \($0.totalRevenue.sarFormatted)"
+            }
+        }
+        return (lines + paymentLines + zatcaLines + productLines).joined(separator: "\n")
+    }
+
+    private func metricsCSV() -> String {
+        var rows = ["metric,value"]
+        if let dashboard {
+            rows.append("total_revenue,\(dashboard.totalRevenue)")
+            rows.append("total_orders,\(dashboard.totalOrders)")
+            rows.append("avg_order_value,\(dashboard.avgOrderValue)")
+            rows.append("total_vat,\(dashboard.totalVat)")
+            rows.append("total_discounts,\(dashboard.totalDiscounts)")
+            rows.append("revenue_today,\(dashboard.revenueToday)")
+            rows.append("orders_today,\(dashboard.ordersToday)")
+            rows.append("avg_order_time_min,\(dashboard.avgOrderTimeMin)")
+        }
+        return rows.joined(separator: "\n")
+    }
+
+    private func paymentsCSV() -> String {
+        var rows = ["method,total,vat,count"]
+        for row in paymentsSummary {
+            rows.append("\(csvEscape(paymentMethodName(row.method))),\(row.total),\(row.vat),\(row.count)")
+        }
+        return rows.joined(separator: "\n")
+    }
+
+    private func zatcaCSV() -> String {
+        var rows = ["section,name,value"]
+        if let zatcaReport {
+            rows.append("summary,total_invoices,\(zatcaReport.totalInvoices)")
+            rows.append("summary,total_vat_collected,\(zatcaReport.totalVatCollected)")
+            for status in zatcaReport.byStatus.keys.sorted() {
+                rows.append("status,\(csvEscape(statusTitle(status))),\(zatcaReport.byStatus[status] ?? 0)")
+            }
+        }
+        return rows.joined(separator: "\n")
+    }
+
+    private func topProductsCSV() -> String {
+        var rows = ["product,quantity,revenue"]
+        for product in topProducts.prefix(10) {
+            rows.append("\(csvEscape(isArabic ? product.nameAr : product.nameEn)),\(product.totalQty),\(product.totalRevenue)")
+        }
+        return rows.joined(separator: "\n")
+    }
+
+    private func trendsCSV() -> String {
+        var rows = ["hour,revenue,orders"]
+        for entry in dashboard?.hourlyTrend ?? [] {
+            rows.append("\(csvEscape(entry.hour)),\(entry.revenue),\(entry.orders)")
+        }
+        return rows.joined(separator: "\n")
+    }
+
+    private func orderTypesCSV() -> String {
+        var rows = ["order_type,revenue"]
+        for (type, revenue) in (dashboard?.revenueByOrderType ?? [:]).sorted(by: { $0.key < $1.key }) {
+            rows.append("\(csvEscape(type)),\(revenue)")
+        }
+        return rows.joined(separator: "\n")
+    }
+
+    private func csvEscape(_ value: String) -> String {
+        let escaped = value.replacingOccurrences(of: "\"", with: "\"\"")
+        return "\"\(escaped)\""
+    }
+
+    private func paymentMethodName(_ method: String) -> String {
+        switch method.uppercased() {
+        case "CASH": return isArabic ? "نقدي" : "Cash"
+        case "CARD": return isArabic ? "بطاقة" : "Card"
+        case "APPLE_PAY": return isArabic ? "آبل باي" : "Apple Pay"
+        case "MADA": return isArabic ? "مدى" : "Mada"
+        default: return method.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    private func orderCountLabel(_ count: Int) -> String {
+        isArabic ? "\(count) طلب" : "\(count) orders"
+    }
+
+    private func statusTitle(_ status: String) -> String {
+        switch status.lowercased() {
+        case "reported": return isArabic ? "مبلغ" : "Reported"
+        case "cleared": return isArabic ? "معتمد" : "Cleared"
+        case "pending": return isArabic ? "قيد الانتظار" : "Pending"
+        case "failed": return isArabic ? "فشل" : "Failed"
+        default: return status.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    private func statusColor(_ status: String) -> Color {
+        switch status.lowercased() {
+        case "reported", "cleared": return AppTheme.success
+        case "pending": return AppTheme.warning
+        case "failed": return AppTheme.danger
+        default: return AppTheme.info
+        }
+    }
+
+    private func metricTile(title: String, value: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(AppTheme.caption(11))
+                .foregroundColor(AppTheme.textMuted)
+            Text(value)
+                .font(AppTheme.headline(14))
+                .foregroundColor(AppTheme.textPrimary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(color.opacity(0.1))
+        .cornerRadius(AppTheme.r12)
+    }
+}
+
+struct FlowLayout<Content: View>: View {
+    let spacing: CGFloat
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

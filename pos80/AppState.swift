@@ -8,19 +8,58 @@ enum AppDestination: Equatable {
     case main
 }
 
+struct ManagerOperationalSnapshot: Codable {
+    var hasActiveShift = false
+    var activeShiftId: String?
+    var openOrdersCount = 0
+    var paidOrdersCount = 0
+    var offlinePendingCount = 0
+    var unreadBroadcastCount = 0
+    var isOnline = true
+    var isSyncing = false
+    var lastSyncAt: Date?
+    var lastSyncError: String?
+    var updatedAt = Date()
+    var urgentAlerts: [ManagerAlert] = []
+
+    static let empty = ManagerOperationalSnapshot()
+
+    var requiresAttention: Bool {
+        !urgentAlerts.isEmpty
+    }
+}
+
+enum ManagerAlert: Hashable, Codable {
+    case noActiveShift
+    case deviceOffline
+    case pendingSyncOrders(Int)
+    case offlineSyncNeedsAttention
+    case unreadBroadcasts(Int)
+}
+
 @Observable
 @MainActor
 final class AppState {
 
     static let shared = AppState()
     private let api = APIService.shared
+    private let managerApprovalLogKey = "manager_approval_log"
+    private let cachedCurrentUserKey = "cached_current_user"
+    private let cachedBroadcastsKey = "cached_broadcasts"
+    private let cachedUnreadBroadcastCountKey = "cached_unread_broadcast_count"
+    private let saleCompletionSoundEnabledKey = "sale_completion_sound_enabled"
 
     // MARK: Navigation
     var destination: AppDestination = .login
     var selectedTab: MainTab = .pos
 
     // MARK: Auth
-    var currentUser: CurrentUser?
+    var currentUser: CurrentUser? {
+        didSet {
+            persistCurrentUser()
+            exportManagerSnapshot()
+        }
+    }
     var isLoading = false
     var errorMessage: String?
     var successMessage: String?
@@ -28,12 +67,27 @@ final class AppState {
     // MARK: Current Shift
     var currentShift: Shift?
     var shiftLoaded = false
+    var unreadBroadcastCount = 0 {
+        didSet { UserDefaults.standard.set(unreadBroadcastCount, forKey: cachedUnreadBroadcastCountKey) }
+    }
+    var latestBroadcasts: [BroadcastItem] = [] {
+        didSet { persistBroadcastsCache() }
+    }
+    var managerApprovalLog: [ManagerApprovalEntry] = []
+    var managerSnapshot = ManagerOperationalSnapshot.empty {
+        didSet { exportManagerSnapshot() }
+    }
 
     // MARK: Appearance
     var isDark: Bool = UserDefaults.standard.object(forKey: "pos_is_dark") as? Bool ?? true {
         didSet {
             UserDefaults.standard.set(isDark, forKey: "pos_is_dark")
             AppTheme.isDark = isDark
+        }
+    }
+    var isSaleCompletionSoundEnabled: Bool = UserDefaults.standard.object(forKey: "sale_completion_sound_enabled") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(isSaleCompletionSoundEnabled, forKey: saleCompletionSoundEnabledKey)
         }
     }
 
@@ -68,6 +122,8 @@ final class AppState {
 
     private init() {
         AppTheme.isDark = isDark
+        restoreManagerApprovalLog()
+        restoreCachedSessionState()
         // Restore session if token exists
         if api.isAuthenticated {
             destination = .main
@@ -116,18 +172,97 @@ final class AppState {
 
     func logout() {
         api.logout()
-        api.tenantSlug = nil
         currentUser = nil
         currentShift = nil
         shiftLoaded = false
+        unreadBroadcastCount = 0
+        latestBroadcasts = []
+        managerSnapshot = .empty
+        ManagerSnapshotStore.shared.clear()
         withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
             destination = .login
         }
     }
 
+    private func restoreCachedSessionState() {
+        if let data = UserDefaults.standard.data(forKey: cachedCurrentUserKey),
+           let cachedUser = try? JSONDecoder().decode(CurrentUser.self, from: data) {
+            currentUser = cachedUser
+        }
+
+        if let data = UserDefaults.standard.data(forKey: "cached_current_shift"),
+           let cachedShift = try? JSONDecoder().decode(Shift.self, from: data) {
+            currentShift = cachedShift
+        }
+
+        if let data = UserDefaults.standard.data(forKey: cachedBroadcastsKey),
+           let cachedBroadcasts = try? JSONDecoder().decode([BroadcastItem].self, from: data) {
+            latestBroadcasts = cachedBroadcasts
+        }
+
+        unreadBroadcastCount = UserDefaults.standard.integer(forKey: cachedUnreadBroadcastCountKey)
+    }
+
+    private func persistCurrentUser() {
+        guard let currentUser else {
+            UserDefaults.standard.removeObject(forKey: cachedCurrentUserKey)
+            return
+        }
+        guard let data = try? JSONEncoder().encode(currentUser) else { return }
+        UserDefaults.standard.set(data, forKey: cachedCurrentUserKey)
+    }
+
+    private func persistBroadcastsCache() {
+        guard let data = try? JSONEncoder().encode(latestBroadcasts) else { return }
+        UserDefaults.standard.set(data, forKey: cachedBroadcastsKey)
+    }
+
+    func recordManagerApproval(action: String, managerName: String, managerRole: String) {
+        let entry = ManagerApprovalEntry(
+            action: action,
+            managerName: managerName,
+            managerRole: managerRole,
+            approvedAt: ISO8601DateFormatter().string(from: Date())
+        )
+        managerApprovalLog.insert(entry, at: 0)
+        if managerApprovalLog.count > 20 {
+            managerApprovalLog = Array(managerApprovalLog.prefix(20))
+        }
+        persistManagerApprovalLog()
+    }
+
+    private func restoreManagerApprovalLog() {
+        guard let data = UserDefaults.standard.data(forKey: managerApprovalLogKey),
+              let entries = try? JSONDecoder().decode([ManagerApprovalEntry].self, from: data) else {
+            managerApprovalLog = []
+            return
+        }
+        managerApprovalLog = entries
+    }
+
+    private func persistManagerApprovalLog() {
+        guard let data = try? JSONEncoder().encode(managerApprovalLog) else { return }
+        UserDefaults.standard.set(data, forKey: managerApprovalLogKey)
+    }
+
     // MARK: Load initial data
     private func loadInitialData() async {
-        await loadCurrentShift()
+        restoreCachedSessionState()
+        async let shiftTask: Void = loadCurrentShift()
+        async let broadcastsTask: Void = refreshBroadcasts()
+        _ = await (shiftTask, broadcastsTask)
+        await refreshManagerSnapshot()
+    }
+
+    func refreshBroadcasts() async {
+        do {
+            let response = try await api.fetchBroadcasts()
+            latestBroadcasts = response.items
+            unreadBroadcastCount = response.unreadCount
+        } catch {
+            // Keep the last known state if refresh fails.
+        }
+        syncManagerSnapshotWithLocalState()
     }
 
     func loadCurrentShift() async {
@@ -148,6 +283,62 @@ final class AppState {
             }
         }
         shiftLoaded = true
+        syncManagerSnapshotWithLocalState()
+    }
+
+    func refreshManagerSnapshot() async {
+        let fetchedOrders = try? await api.fetchOrders()
+        updateManagerSnapshot(using: fetchedOrders)
+    }
+
+    func syncManagerSnapshotWithLocalState() {
+        updateManagerSnapshot(using: nil)
+    }
+
+    private func updateManagerSnapshot(using orders: [Order]?) {
+        let offlineManager = OfflineManager.shared
+        let activeOrders = orders?.filter { ["received", "preparing", "ready"].contains($0.status) }.count
+        let paidOrders = orders?.filter { $0.status == "paid" }.count
+
+        var urgentAlerts: [ManagerAlert] = []
+        if currentShift == nil {
+            urgentAlerts.append(.noActiveShift)
+        }
+        if !offlineManager.isOnline {
+            urgentAlerts.append(.deviceOffline)
+        }
+        if offlineManager.pendingCount > 0 {
+            urgentAlerts.append(.pendingSyncOrders(offlineManager.pendingCount))
+        }
+        if offlineManager.lastSyncError != nil {
+            urgentAlerts.append(.offlineSyncNeedsAttention)
+        }
+        if unreadBroadcastCount > 0 {
+            urgentAlerts.append(.unreadBroadcasts(unreadBroadcastCount))
+        }
+
+        managerSnapshot = ManagerOperationalSnapshot(
+            hasActiveShift: currentShift != nil,
+            activeShiftId: currentShift?.id,
+            openOrdersCount: activeOrders ?? managerSnapshot.openOrdersCount,
+            paidOrdersCount: paidOrders ?? managerSnapshot.paidOrdersCount,
+            offlinePendingCount: offlineManager.pendingCount,
+            unreadBroadcastCount: unreadBroadcastCount,
+            isOnline: offlineManager.isOnline,
+            isSyncing: offlineManager.isSyncing,
+            lastSyncAt: offlineManager.lastSyncAt,
+            lastSyncError: offlineManager.lastSyncError,
+            updatedAt: Date(),
+            urgentAlerts: urgentAlerts
+        )
+    }
+
+    private func exportManagerSnapshot() {
+        ManagerSnapshotStore.shared.save(
+            snapshot: managerSnapshot,
+            currentUser: currentUser,
+            tenantSlug: api.tenantSlug
+        )
     }
 
     // MARK: Toast helpers
@@ -167,7 +358,7 @@ final class AppState {
 }
 
 // MARK: - Current User
-struct CurrentUser {
+struct CurrentUser: Codable {
     let userId: String
     let nameEn: String
     let nameAr: String
@@ -187,6 +378,22 @@ struct CurrentUser {
     var isManager: Bool { role == "manager" || role == "owner" || role == "super_admin" }
     var displayName: String { nameEn }
     var roleDisplayName: String { role.replacingOccurrences(of: "_", with: " ").capitalized }
+}
+
+struct ManagerApprovalEntry: Codable, Identifiable {
+    let id: UUID
+    let action: String
+    let managerName: String
+    let managerRole: String
+    let approvedAt: String
+
+    init(id: UUID = UUID(), action: String, managerName: String, managerRole: String, approvedAt: String) {
+        self.id = id
+        self.action = action
+        self.managerName = managerName
+        self.managerRole = managerRole
+        self.approvedAt = approvedAt
+    }
 }
 
 // MARK: - Main Tabs

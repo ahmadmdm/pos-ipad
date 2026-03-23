@@ -582,9 +582,7 @@ struct PaymentView: View {
                 successOpacity = 1
             }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            let announcement = AVSpeechUtterance(string: "Payment successful. Order queued offline.")
-            announcement.rate = AVSpeechUtteranceDefaultSpeechRate
-            synthesizer.speak(announcement)
+            announceSaleCompletion(orderLabel: nil, isOfflineQueued: true)
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { dismiss() }
             return
         }
@@ -613,23 +611,34 @@ struct PaymentView: View {
             }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
 
-            // Announce payment via speech
             let orderLabel = placedOrder.flatMap { $0.orderNumber } ?? ""
             let cashChange = (Double(cashInput) ?? 0) - vm.cartTotal
-            var speech = "Payment successful"
-            if !orderLabel.isEmpty { speech += ". Order \(orderLabel)" }
-            if selectedMethod == .cash && cashChange > 0.01 {
-                speech += ". Change \(String(format: "%.2f", cashChange)) riyals"
-            }
-            let utterance = AVSpeechUtterance(string: speech)
-            utterance.rate = AVSpeechUtteranceDefaultSpeechRate
-            synthesizer.speak(utterance)
+            announceSaleCompletion(orderLabel: orderLabel, cashChange: cashChange)
 
             // Auto-print receipt
             Task { await autoPrintReceipt(order: placedOrder!) }
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { dismiss() }
         }
+    }
+
+    private func announceSaleCompletion(orderLabel: String?, cashChange: Double = 0, isOfflineQueued: Bool = false) {
+        guard appState.isSaleCompletionSoundEnabled else { return }
+
+        var speech = "Payment successful"
+        if isOfflineQueued {
+            speech += ". Order queued offline"
+        }
+        if let orderLabel, !orderLabel.isEmpty {
+            speech += ". Order \(orderLabel)"
+        }
+        if selectedMethod == .cash && cashChange > 0.01 {
+            speech += ". Change \(String(format: "%.2f", cashChange)) riyals"
+        }
+
+        let utterance = AVSpeechUtterance(string: speech)
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        synthesizer.speak(utterance)
     }
 
     private func quickCashAmounts(for total: Double) -> [Double] {

@@ -1,6 +1,7 @@
 // CustomerDisplayView.swift — Branded customer-facing screen for external USB-C display
 // Mirrors the current cart live and shows a ZATCA QR placeholder when order is paid.
 import SwiftUI
+import UIKit
 
 // MARK: - External Display Manager
 @MainActor
@@ -12,42 +13,75 @@ final class ExternalDisplayManager {
     private var monitorTask: Task<Void, Never>?
 
     func start(posVM: POSViewModel) {
-        // Handle any screen already connected at launch
-        for screen in UIScreen.screens where screen !== UIScreen.main {
-            showCustomerDisplay(on: screen, posVM: posVM)
+        monitorTask?.cancel()
+
+        // Handle any external window scene already connected at launch.
+        for scene in externalWindowScenes() {
+            showCustomerDisplay(on: scene, posVM: posVM)
         }
-        // Observe future screen connections / disconnections
+
+        // Observe future scene activations / disconnections.
         monitorTask = Task { [weak self] in
             await withTaskGroup(of: Void.self) { group in
                 group.addTask {
-                    for await notification in NotificationCenter.default.notifications(named: UIScreen.didConnectNotification) {
-                        guard let screen = notification.object as? UIScreen else { continue }
-                        await self?.showCustomerDisplay(on: screen, posVM: posVM)
+                    for await notification in NotificationCenter.default.notifications(named: UIScene.didActivateNotification) {
+                        guard let self,
+                              let scene = notification.object as? UIWindowScene,
+                              await self.isExternalScene(scene) else { continue }
+                        await self.showCustomerDisplay(on: scene, posVM: posVM)
                     }
                 }
                 group.addTask {
-                    for await _ in NotificationCenter.default.notifications(named: UIScreen.didDisconnectNotification) {
-                        await self?.tearDown()
+                    for await notification in NotificationCenter.default.notifications(named: UIScene.didDisconnectNotification) {
+                        guard let self,
+                              let scene = notification.object as? UIWindowScene else { continue }
+                        await self.tearDown(ifMatches: scene)
                     }
                 }
             }
         }
     }
 
-    private func showCustomerDisplay(on screen: UIScreen, posVM: POSViewModel) {
-        let window = UIWindow(frame: screen.bounds)
-        window.screen = screen
+    private func externalWindowScenes() -> [UIWindowScene] {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter(isExternalScene)
+    }
+
+    private func primaryWindowScene() -> UIWindowScene? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { scene in
+                scene.activationState == .foregroundActive || scene.activationState == .foregroundInactive
+            }
+    }
+
+    private func isExternalScene(_ scene: UIWindowScene) -> Bool {
+        guard let primaryScene = primaryWindowScene() else { return false }
+        return scene !== primaryScene && scene.screen !== primaryScene.screen
+    }
+
+    private func showCustomerDisplay(on scene: UIWindowScene, posVM: POSViewModel) {
+        if externalWindow?.windowScene === scene {
+            return
+        }
+
+        let window = UIWindow(windowScene: scene)
         let host = UIHostingController(
             rootView: CustomerDisplayView()
                 .environment(posVM)
                 .environment(AppState.shared)
         )
         window.rootViewController = host
+        window.frame = scene.screen.bounds
         window.makeKeyAndVisible()
         externalWindow = window
     }
 
-    private func tearDown() {
+    private func tearDown(ifMatches scene: UIWindowScene? = nil) {
+        if let scene, externalWindow?.windowScene !== scene {
+            return
+        }
         externalWindow?.isHidden = true
         externalWindow = nil
     }
