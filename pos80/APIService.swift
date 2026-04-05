@@ -3,11 +3,46 @@ import Foundation
 
 // MARK: - Configuration
 enum APIConfig {
-    static var baseURL: String {
-        UserDefaults.standard.string(forKey: "api_base_url") ?? "http://localhost:8000"
+    static let baseURLKey = "api_base_url"
+    static let defaultBaseURL = "https://ampos-api.clo0.net"
+    private static let legacyLocalhostBaseURL = "http://localhost:8000"
+
+    static func normalizedBaseURL(_ urlString: String?) -> String? {
+        guard let urlString else { return nil }
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
+
+    static var baseURL: String {
+        guard let stored = normalizedBaseURL(UserDefaults.standard.string(forKey: baseURLKey)) else {
+            return defaultBaseURL
+        }
+        return stored == legacyLocalhostBaseURL ? defaultBaseURL : stored
+    }
+
     static var apiV1: String { "\(baseURL)/api/v1" }
-    static var publicBaseURL: String { baseURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/")) }
+    static var publicBaseURL: String { baseURL }
+
+    static func persistBaseURL(_ urlString: String) {
+        let normalized = normalizedBaseURL(urlString) ?? defaultBaseURL
+        UserDefaults.standard.set(normalized, forKey: baseURLKey)
+    }
+
+    static func migrateStoredBaseURLIfNeeded() {
+        guard let stored = UserDefaults.standard.string(forKey: baseURLKey) else { return }
+        guard let normalized = normalizedBaseURL(stored) else {
+            UserDefaults.standard.removeObject(forKey: baseURLKey)
+            return
+        }
+        if normalized == legacyLocalhostBaseURL {
+            UserDefaults.standard.set(defaultBaseURL, forKey: baseURLKey)
+            return
+        }
+        if normalized != stored {
+            UserDefaults.standard.set(normalized, forKey: baseURLKey)
+        }
+    }
 
     static func isLoopbackURL(_ urlString: String) -> Bool {
         guard let host = URL(string: urlString)?.host?.lowercased() else { return false }

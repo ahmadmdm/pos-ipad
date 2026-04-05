@@ -24,6 +24,7 @@ struct pos80App: App {
     @State private var appState = AppState.shared
 
     init() {
+        APIConfig.migrateStoredBaseURLIfNeeded()
         // Configure TipKit — show tips once, stored in app data
         try? Tips.configure([
             .displayFrequency(.immediate),

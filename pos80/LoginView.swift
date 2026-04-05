@@ -17,7 +17,7 @@ struct LoginView: View {
     @State private var formOpacity: Double = 0
     @State private var shakeOffset: CGFloat = 0
     @State private var showServerConfig = false
-    @State private var serverURLDraft: String = UserDefaults.standard.string(forKey: "api_base_url") ?? "http://localhost:8000"
+    @State private var serverURLDraft: String = APIConfig.baseURL
 
     private var serverURLWarning: String? {
         let candidate = serverURLDraft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -244,13 +244,13 @@ struct LoginView: View {
                 // Server config button
                 VStack(spacing: 0) {
                     Button {
-                        serverURLDraft = UserDefaults.standard.string(forKey: "api_base_url") ?? "http://localhost:8000"
+                        serverURLDraft = APIConfig.baseURL
                         showServerConfig = true
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "server.rack")
                                 .font(.system(size: 12))
-                            Text(UserDefaults.standard.string(forKey: "api_base_url") ?? "http://localhost:8000")
+                            Text(APIConfig.baseURL)
                                 .font(AppTheme.caption())
                                 .lineLimit(1)
                         }
@@ -637,7 +637,7 @@ struct ServerConfigSheet: View {
                         .font(AppTheme.headline())
                         .foregroundColor(AppTheme.textSecondary)
 
-                    TextField("http://192.168.x.x:8000", text: $urlDraft)
+                    TextField(APIConfig.defaultBaseURL, text: $urlDraft)
                         .font(AppTheme.body())
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
@@ -649,7 +649,7 @@ struct ServerConfigSheet: View {
                         .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
                             .strokeBorder(AppTheme.border, lineWidth: 1))
 
-                    Text("Enter the IP address of the machine running the backend. Example: http://192.168.1.100:8000")
+                    Text("Default endpoint: \(APIConfig.defaultBaseURL). You can replace it with another backend URL if needed.")
                         .font(AppTheme.caption())
                         .foregroundColor(AppTheme.textMuted)
 
@@ -678,8 +678,8 @@ struct ServerConfigSheet: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button("Save") {
-                        let url = urlDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                        UserDefaults.standard.set(url, forKey: "api_base_url")
+                        APIConfig.persistBaseURL(urlDraft)
+                        urlDraft = APIConfig.baseURL
                         saved = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { dismiss() }
                     }

@@ -479,7 +479,7 @@ struct GeneralSettingsSection: View {
     @Binding var settings: AppSettings?
     @Environment(AppState.self) var appState
     private let l10n = L10n.shared
-    @State private var apiURL: String = UserDefaults.standard.string(forKey: "api_base_url") ?? "http://localhost:8000"
+    @State private var apiURL: String = APIConfig.baseURL
 
     private var apiURLWarning: String? {
         let candidate = apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -495,13 +495,14 @@ struct GeneralSettingsSection: View {
                     .foregroundColor(AppTheme.textSecondary)
                     .frame(width: 100, alignment: .leading)
                 Spacer()
-                TextField("http://localhost:8000", text: $apiURL)
+                TextField(APIConfig.defaultBaseURL, text: $apiURL)
                     .font(AppTheme.caption(13))
                     .foregroundColor(AppTheme.textPrimary)
                     .multilineTextAlignment(.trailing)
                     .frame(maxWidth: 300)
                     .onSubmit {
-                        UserDefaults.standard.set(apiURL, forKey: "api_base_url")
+                        APIConfig.persistBaseURL(apiURL)
+                        apiURL = APIConfig.baseURL
                     }
             }
             .padding(.horizontal, 20)
@@ -527,7 +528,8 @@ struct GeneralSettingsSection: View {
             HStack {
                 Spacer()
                 Button {
-                    UserDefaults.standard.set(apiURL, forKey: "api_base_url")
+                    APIConfig.persistBaseURL(apiURL)
+                    apiURL = APIConfig.baseURL
                     appState.showSuccess("Server URL saved")
                 } label: {
                     Text("Save")
