@@ -400,76 +400,78 @@ struct MainView: View {
             Divider().background(AppTheme.border).padding(.horizontal, 12)
                 .padding(.bottom, 16)
 
-            // Offline / Sync indicator
-            if !offlineManager.isOnline || offlineManager.pendingCount > 0 {
-                Button {
-                    showOfflineQueue = true
-                } label: {
-                    VStack(spacing: 4) {
-                        if !offlineManager.isOnline {
-                            Image(systemName: "wifi.slash")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(AppTheme.danger)
-                            Text(l10n.offline)
-                                .font(AppTheme.caption(10))
-                                .foregroundColor(AppTheme.danger)
-                        }
-                        if offlineManager.pendingCount > 0 {
-                            HStack(spacing: 3) {
-                                if offlineManager.isSyncing {
-                                    ProgressView()
-                                        .scaleEffect(0.6)
-                                        .tint(AppTheme.warning)
-                                } else {
-                                    Image(systemName: "arrow.triangle.2.circlepath")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(AppTheme.warning)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    // Offline / Sync indicator
+                    if !offlineManager.isOnline || offlineManager.pendingCount > 0 {
+                        Button {
+                            showOfflineQueue = true
+                        } label: {
+                            VStack(spacing: 4) {
+                                if !offlineManager.isOnline {
+                                    Image(systemName: "wifi.slash")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(AppTheme.danger)
+                                    Text(l10n.offline)
+                                        .font(AppTheme.caption(10))
+                                        .foregroundColor(AppTheme.danger)
                                 }
-                                Text("\(offlineManager.pendingCount)")
-                                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                                    .foregroundColor(AppTheme.warning)
+                                if offlineManager.pendingCount > 0 {
+                                    HStack(spacing: 3) {
+                                        if offlineManager.isSyncing {
+                                            ProgressView()
+                                                .scaleEffect(0.6)
+                                                .tint(AppTheme.warning)
+                                        } else {
+                                            Image(systemName: "arrow.triangle.2.circlepath")
+                                                .font(.system(size: 10))
+                                                .foregroundColor(AppTheme.warning)
+                                        }
+                                        Text("\(offlineManager.pendingCount)")
+                                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                                            .foregroundColor(AppTheme.warning)
+                                    }
+                                    Text(l10n.pending)
+                                        .font(AppTheme.caption(9))
+                                        .foregroundColor(AppTheme.textMuted)
+                                }
                             }
-                            Text(l10n.pending)
-                                .font(AppTheme.caption(9))
-                                .foregroundColor(AppTheme.textMuted)
+                            .padding(.bottom, 8)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 10)
+                            .background(AppTheme.card)
+                            .cornerRadius(AppTheme.r16)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: AppTheme.r16)
+                                    .strokeBorder(AppTheme.border, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 8)
+                    }
+
+                    // Navigation items
+                    VStack(spacing: 4) {
+                        ForEach(Array(MainTab.allCases.enumerated()), id: \.element) { index, tab in
+                            SidebarItem(
+                                tab: tab,
+                                isSelected: appState.selectedTab == tab,
+                                badge: tab == .pos && posVM.cartCount > 0
+                                    ? "\(posVM.cartCount)"
+                                    : tab == .settings && appState.unreadBroadcastCount > 0
+                                        ? "\(appState.unreadBroadcastCount)"
+                                        : nil
+                            ) {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    appState.selectedTab = tab
+                                }
+                            }
+                            .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                         }
                     }
-                    .padding(.bottom, 8)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 10)
-                    .background(AppTheme.card)
-                    .cornerRadius(AppTheme.r16)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: AppTheme.r16)
-                            .strokeBorder(AppTheme.border, lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 8)
-            }
-
-            // Navigation items
-            VStack(spacing: 4) {
-                ForEach(Array(MainTab.allCases.enumerated()), id: \.element) { index, tab in
-                    SidebarItem(
-                        tab: tab,
-                        isSelected: appState.selectedTab == tab,
-                        badge: tab == .pos && posVM.cartCount > 0
-                            ? "\(posVM.cartCount)"
-                            : tab == .settings && appState.unreadBroadcastCount > 0
-                                ? "\(appState.unreadBroadcastCount)"
-                                : nil
-                    ) {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            appState.selectedTab = tab
-                        }
-                    }
-                    .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+                    .popoverTip(KeyboardShortcutsTip())
                 }
             }
-            .popoverTip(KeyboardShortcutsTip())
-
-            Spacer()
 
             // Bottom user info
             VStack(spacing: 16) {

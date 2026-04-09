@@ -2,10 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSCameraUsageDescription</key>
-	<string>Camera is needed to scan product barcodes</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Local network access is needed to connect to receipt printers</string>
+	<key>AmposSharedAppGroup</key>
+	<string>group.com.ahmadmdm.pos.pos80.shared</string>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.ampos.pos80.sync</string>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_ipp._tcp</string>
@@ -13,62 +20,49 @@
 		<string>_escpos._tcp</string>
 		<string>_printer._tcp</string>
 	</array>
-	<key>NSFaceIDUsageDescription</key>
-	<string>Face ID is used to lock and unlock the POS terminal</string>
-	<key>AmposSharedAppGroup</key>
-	<string>group.com.ahmadmdm.pos.pos80.shared</string>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>com.ampos.pos80.viewOrder</string>
+	</array>
 	<key>UIApplicationShortcutItems</key>
 	<array>
 		<dict>
-			<key>UIApplicationShortcutItemType</key>
-			<string>com.ampos.pos80.neworder</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>New Order</string>
-			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>Open the POS screen</string>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>cart.badge.plus</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>Open the POS screen</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>New Order</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.ampos.pos80.neworder</string>
 		</dict>
 		<dict>
-			<key>UIApplicationShortcutItemType</key>
-			<string>com.ampos.pos80.orders</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>View Orders</string>
-			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>See all recent orders</string>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>list.bullet.clipboard</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>See all recent orders</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>View Orders</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.ampos.pos80.orders</string>
 		</dict>
 		<dict>
-			<key>UIApplicationShortcutItemType</key>
-			<string>com.ampos.pos80.reports</string>
-			<key>UIApplicationShortcutItemTitle</key>
-			<string>Today\u2019s Sales</string>
-			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>View sales report</string>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>chart.bar.fill</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>View sales report</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Today\u2019s Sales</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.ampos.pos80.reports</string>
 		</dict>
 	</array>
+	<key>UIApplicationSupportsMultipleScenes</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
 		<string>processing</string>
-	</array>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>com.ampos.pos80.sync</string>
-	</array>
-	<key>UIApplicationSupportsMultipleScenes</key>
-	<true/>
-	<key>NSUserActivityTypes</key>
-	<array>
-		<string>com.ampos.pos80.viewOrder</string>
 	</array>
 </dict>
 </plist>
