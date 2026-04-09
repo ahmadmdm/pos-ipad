@@ -58,6 +58,11 @@ extension L10n {
     // MARK: Auth
     var welcomeBack: String { t("Welcome Back", "أهلاً بعودتك") }
     var signInSubtitle: String { t("Sign in to start your shift", "سجّل الدخول لبدء وردِيتك") }
+    var tenantCode: String { t("Tenant Code", "رمز الفرع") }
+    var tenantCodePlaceholder: String { t("Enter tenant code", "أدخل رمز الفرع") }
+    var resolveTenant: String { t("Verify", "تحقق") }
+    var tenantResolved: String { t("Restaurant verified", "تم التحقق من المطعم") }
+    var enterTenantCodeFirst: String { t("Enter and verify the tenant code first", "أدخل رمز الفرع وتحقق منه أولاً") }
     var emailPlaceholder: String { t("Email address", "البريد الإلكتروني") }
     var password: String { t("Password", "كلمة المرور") }
     var signIn: String { t("Sign In", "تسجيل الدخول") }
@@ -134,6 +139,19 @@ extension L10n {
     var insufficientAmount: String { t("Insufficient amount", "المبلغ غير كافي") }
     var customerOptional: String { t("Customer (Optional)", "العميل (اختياري)") }
     var customerName: String { t("Customer name", "اسم العميل") }
+    var customerPhone: String { t("Customer phone", "هاتف العميل") }
+    var lookupLoyalty: String { t("Lookup", "بحث") }
+    var loyaltyCustomerLoaded: String { t("Loyalty customer loaded", "تم تحميل بيانات عميل الولاء") }
+    var recentCustomers: String { t("Recent customers", "العملاء المتكررون") }
+    var points: String { t("points", "نقطة") }
+    var couponCode: String { t("Coupon Code", "كود الكوبون") }
+    var enterCouponCode: String { t("Enter coupon code", "أدخل كود الكوبون") }
+    var applyCoupon: String { t("Apply Coupon", "تطبيق الكوبون") }
+    var removeCoupon: String { t("Remove Coupon", "إزالة الكوبون") }
+    var couponInvalid: String { t("Coupon is invalid", "الكوبون غير صالح") }
+    var addItemsBeforeCoupon: String { t("Add items before applying a coupon", "أضف عناصر قبل تطبيق الكوبون") }
+    var enterCustomerPhone: String { t("Enter the customer's phone number", "أدخل رقم هاتف العميل") }
+    func couponApplied(_ code: String) -> String { t("Coupon \(code) applied", "تم تطبيق الكوبون \(code)") }
     func confirmPayment(_ method: String) -> String { t("Confirm \(method) Payment", "تأكيد الدفع \(method)") }
     var confirmSplitPayment: String { t("Confirm Split Payment", "تأكيد الدفع المقسّم") }
     var paymentSuccessful: String { t("Payment Successful!", "تمت عملية الدفع بنجاح!") }

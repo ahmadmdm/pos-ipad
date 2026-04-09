@@ -11,7 +11,6 @@ struct PaymentView: View {
 
     @State private var selectedMethod: PaymentMethod = .cash
     @State private var cashInput = ""
-    @State private var customerNameInput = ""
     @State private var orderPlaced = false
     @State private var placedOrder: Order?
     @State private var isPlacing = false
@@ -58,6 +57,11 @@ struct PaymentView: View {
                 } else {
                     paymentScreen(geo: geo)
                 }
+            }
+        }
+        .task {
+            if vm.customerInsights.isEmpty {
+                await vm.loadCustomerInsights()
             }
         }
     }
@@ -170,7 +174,7 @@ struct PaymentView: View {
             VStack(spacing: 6) {
                 SummaryRow(label: l10n.subtotal, value: vm.cartSubtotal.sarFormatted)
                 if vm.discountAmount > 0 {
-                    SummaryRow(label: l10n.discount, value: "-\(vm.discountAmount.sarFormatted)", valueColor: AppTheme.success)
+                    SummaryRow(label: vm.discountSummaryLabel, value: "-\(vm.discountAmount.sarFormatted)", valueColor: AppTheme.success)
                 }
                 SummaryRow(label: l10n.vat15, value: vm.cartVAT.sarFormatted)
             }
@@ -385,11 +389,174 @@ struct PaymentView: View {
 
     // MARK: - Customer Section
     private var customerSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        return VStack(alignment: .leading, spacing: 10) {
             Text(l10n.customerOptional)
                 .font(AppTheme.headline())
                 .foregroundColor(AppTheme.textSecondary)
-            ThemeTextField(icon: "person.fill", placeholder: l10n.customerName, text: $customerNameInput)
+
+            ThemeTextField(
+                icon: "person.fill",
+                placeholder: l10n.customerName,
+                text: Binding(
+                    get: { vm.customerName },
+                    set: { vm.customerName = $0 }
+                )
+            )
+
+            HStack(spacing: 10) {
+                ThemeTextField(
+                    icon: "phone.fill",
+                    placeholder: l10n.customerPhone,
+                    text: Binding(
+                        get: { vm.customerPhone },
+                        set: { vm.customerPhone = $0 }
+                    ),
+                    keyboardType: .phonePad,
+                    autocapitalization: .never)
+
+                Button {
+                    Task { await vm.lookupLoyaltyCustomer() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if vm.isLookingUpLoyaltyCustomer {
+                            ProgressView().tint(.white)
+                        } else {
+                            Image(systemName: "person.text.rectangle")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        Text(l10n.lookupLoyalty)
+                            .font(AppTheme.caption(12))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 52)
+                    .background(AppTheme.info)
+                    .cornerRadius(AppTheme.r12)
+                }
+                .buttonStyle(.plain)
+                .disabled(vm.customerPhone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.isLookingUpLoyaltyCustomer)
+            }
+
+            if let customer = vm.loyaltyCustomer {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(customer.name)
+                            .font(AppTheme.headline())
+                            .foregroundColor(AppTheme.textPrimary)
+                        Spacer()
+                        Text("\(customer.pointsBalance) \(l10n.points)")
+                            .font(AppTheme.caption(12))
+                            .foregroundColor(AppTheme.success)
+                    }
+
+                    HStack(spacing: 12) {
+                        if let totalOrders = customer.totalOrders {
+                            Label("\(totalOrders)", systemImage: "cart")
+                                .font(AppTheme.caption(12))
+                                .foregroundColor(AppTheme.textSecondary)
+                        }
+                        if let totalSpent = customer.totalSpent {
+                            Label(totalSpent.sarFormatted, systemImage: "banknote")
+                                .font(AppTheme.caption(12))
+                                .foregroundColor(AppTheme.textSecondary)
+                        }
+                    }
+                }
+                .padding(14)
+                .background(AppTheme.success.opacity(0.08))
+                .cornerRadius(AppTheme.r12)
+                .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
+                    .strokeBorder(AppTheme.success.opacity(0.2), lineWidth: 1))
+            }
+
+            if !vm.customerInsights.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(l10n.recentCustomers)
+                        .font(AppTheme.caption(12))
+                        .foregroundColor(AppTheme.textMuted)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(vm.customerInsights.prefix(8))) { insight in
+                                Button {
+                                    vm.selectCustomerInsight(insight)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(insight.name)
+                                            .font(AppTheme.caption(12))
+                                            .foregroundColor(AppTheme.textPrimary)
+                                            .lineLimit(1)
+                                        if let phone = insight.phone, !phone.isEmpty {
+                                            Text(phone)
+                                                .font(AppTheme.caption(10))
+                                                .foregroundColor(AppTheme.textMuted)
+                                        }
+                                        Text("\(insight.pointsBalance) \(l10n.points)")
+                                            .font(AppTheme.caption(10))
+                                            .foregroundColor(AppTheme.accent)
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .background(AppTheme.card)
+                                    .cornerRadius(AppTheme.r12)
+                                    .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
+                                        .strokeBorder(AppTheme.border, lineWidth: 1))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(l10n.couponCode)
+                    .font(AppTheme.headline())
+                    .foregroundColor(AppTheme.textSecondary)
+
+                HStack(spacing: 10) {
+                    ThemeTextField(
+                        icon: "ticket.fill",
+                        placeholder: l10n.enterCouponCode,
+                        text: Binding(
+                            get: { vm.couponCode },
+                            set: { vm.couponCode = $0 }
+                        ),
+                        autocapitalization: .never)
+
+                    Button {
+                        if vm.discountOrigin == .coupon {
+                            vm.removeCoupon()
+                        } else {
+                            Task { await vm.applyCoupon() }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if vm.isApplyingCoupon {
+                                ProgressView().tint(.white)
+                            } else {
+                                Image(systemName: vm.discountOrigin == .coupon ? "xmark.circle.fill" : "checkmark.circle.fill")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                            Text(vm.discountOrigin == .coupon ? l10n.removeCoupon : l10n.applyCoupon)
+                                .font(AppTheme.caption(12))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .frame(height: 52)
+                        .background(vm.discountOrigin == .coupon ? AppTheme.danger : AppTheme.accent)
+                        .cornerRadius(AppTheme.r12)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(vm.isApplyingCoupon || (vm.discountOrigin != .coupon && vm.couponCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                }
+
+                if let coupon = vm.appliedCoupon, vm.discountOrigin == .coupon {
+                    Text(coupon.message.isEmpty ? l10n.couponApplied(coupon.code ?? vm.couponCode) : coupon.message)
+                        .font(AppTheme.caption(12))
+                        .foregroundColor(AppTheme.success)
+                }
+            }
         }
     }
 
@@ -438,7 +605,6 @@ struct PaymentView: View {
     }
 
     // MARK: - Success Screen
-    @State private var invoiceData: Data?
 
     private var successScreen: some View {
         VStack(spacing: 32) {
@@ -487,49 +653,29 @@ struct PaymentView: View {
             Spacer()
 
             VStack(spacing: 12) {
-                // Download Invoice button
-                if let order = placedOrder {
-                    if let data = invoiceData {
-                        ShareLink(
-                            item: PDFFile(data: data),
-                            preview: SharePreview("Invoice.pdf", image: Image(systemName: "doc.text.fill"))
-                        ) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "square.and.arrow.up")
-                                    .font(.system(size: 16, weight: .semibold))
-                                Text(l10n.downloadInvoice)
-                                    .font(AppTheme.headline(14))
-                            }
-                            .foregroundColor(AppTheme.accent)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(AppTheme.accent.opacity(0.12))
-                            .cornerRadius(AppTheme.r12)
-                        }
-                    } else {
-                        Button {
-                            Task {
-                                invoiceData = await vm.downloadInvoicePDF(orderId: order.id)
-                            }
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "arrow.down.doc.fill")
-                                    .font(.system(size: 16, weight: .semibold))
-                                Text(l10n.downloadInvoice)
-                                    .font(AppTheme.headline(14))
-                            }
-                            .foregroundColor(AppTheme.accent)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(AppTheme.accent.opacity(0.12))
-                            .cornerRadius(AppTheme.r12)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
                 // Print Receipt button
                 if let order = placedOrder {
+                    // Share receipt-sized PDF
+                    ShareLink(
+                        item: PDFFile(data: ReceiptPrinter.shared.generateReceiptPDF(
+                            receipt: buildReceiptData(order: order),
+                            paperSize: UserDefaults.standard.string(forKey: "paper_size") ?? "80mm")),
+                        preview: SharePreview("Receipt-\(order.displayNumber ?? 0).pdf",
+                                              image: Image(systemName: "doc.text.fill"))
+                    ) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 16, weight: .semibold))
+                            Text(l10n.downloadInvoice)
+                                .font(AppTheme.headline(14))
+                        }
+                        .foregroundColor(AppTheme.accent)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(AppTheme.accent.opacity(0.12))
+                        .cornerRadius(AppTheme.r12)
+                    }
+
                     Button {
                         Task { await autoPrintReceipt(order: order) }
                     } label: {
@@ -654,26 +800,33 @@ struct PaymentView: View {
     }
 
     private func autoPrintReceipt(order: Order) async {
-        // Check if printer is configured
-        guard let ip = UserDefaults.standard.string(forKey: "receipt_printer_ip"),
-              !ip.isEmpty,
-              let portStr = UserDefaults.standard.string(forKey: "receipt_printer_port"),
-              let port = UInt16(portStr) else {
-            // Try from API settings if saved
-            if let settings = try? await APIService.shared.fetchSettings(),
-               let ip = settings.receiptPrinterIp, !ip.isEmpty,
-               let p = settings.receiptPrinterPort, let port = UInt16(exactly: p) {
-                await doPrint(order: order, ip: ip, port: port)
-            }
+        let receipt = buildReceiptData(order: order)
+        // Check if ESC/POS printer is configured
+        if let ip = UserDefaults.standard.string(forKey: "receipt_printer_ip"),
+           !ip.isEmpty,
+           let portStr = UserDefaults.standard.string(forKey: "receipt_printer_port"),
+           let port = UInt16(portStr) {
+            let paperSize = UserDefaults.standard.string(forKey: "paper_size") ?? "80mm"
+            _ = await ReceiptPrinter.shared.printReceipt(receipt: receipt, ip: ip, port: port, paperSize: paperSize)
             return
         }
-        await doPrint(order: order, ip: ip, port: port)
+        // Try from API settings
+        if let settings = try? await APIService.shared.fetchSettings(),
+           let ip = settings.receiptPrinterIp, !ip.isEmpty,
+           let p = settings.receiptPrinterPort, let port = UInt16(exactly: p) {
+            let paperSize = settings.paperSize ?? "80mm"
+            _ = await ReceiptPrinter.shared.printReceipt(receipt: receipt, ip: ip, port: port, paperSize: paperSize)
+            return
+        }
+        // Fallback: AirPrint with receipt-sized PDF
+        let paperSize = UserDefaults.standard.string(forKey: "paper_size") ?? "80mm"
+        ReceiptPrinter.shared.printViaAirPrint(receipt: receipt, paperSize: paperSize)
     }
 
-    private func doPrint(order: Order, ip: String, port: UInt16) async {
-        let receipt = ReceiptData(
-            storeName: "AMPOS",
-            storeNameAr: nil,
+    private func buildReceiptData(order: Order) -> ReceiptData {
+        ReceiptData(
+            storeName: APIService.shared.tenantName ?? "AMPOS",
+            storeNameAr: APIService.shared.tenantNameAr,
             vatNumber: UserDefaults.standard.string(forKey: "vat_number"),
             branchName: nil,
             orderNumber: "\(order.displayNumber ?? 0)",
@@ -698,7 +851,6 @@ struct PaymentView: View {
             qrData: vm.lastCompletedOrderQR,
             footer: UserDefaults.standard.string(forKey: "receipt_footer")
         )
-        _ = await ReceiptPrinter.shared.printReceipt(receipt: receipt, ip: ip, port: port)
     }
 }
 

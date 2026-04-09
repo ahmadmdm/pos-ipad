@@ -140,6 +140,7 @@ final class AppState {
             api.accessToken = token.accessToken
             api.refreshToken = token.refreshToken
             api.tenantSlug = token.tenantSlug
+            api.cacheAuthenticatedTenant(from: token)
             currentUser = CurrentUser(from: token)
             await loadInitialData()
             withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
@@ -159,6 +160,7 @@ final class AppState {
             api.accessToken = token.accessToken
             api.refreshToken = token.refreshToken
             api.tenantSlug = token.tenantSlug
+            api.cacheAuthenticatedTenant(from: token)
             currentUser = CurrentUser(from: token)
             await loadInitialData()
             withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {

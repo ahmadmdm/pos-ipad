@@ -17,6 +17,8 @@ struct ShiftView: View {
     @State private var isProcessing = false
     @State private var shiftHistory: [Shift] = []
     @State private var isLoadingHistory = false
+    @State private var historyPage = 1
+    @State private var hasMoreHistory = true
     @State private var showCloseConfirm = false
     @State private var selectedShift: Shift?
     @State private var shiftSummary: ShiftSummary?
@@ -384,6 +386,11 @@ struct ShiftView: View {
                                 selectedShift = shift
                                 Task { await loadShiftSummary(shift.id) }
                             }
+                            .onAppear {
+                                if shift.id == shiftHistory.last?.id {
+                                    Task { await loadMoreHistory() }
+                                }
+                            }
                         }
                         }
                     }
@@ -542,10 +549,29 @@ struct ShiftView: View {
 
     private func loadShiftHistory() async {
         isLoadingHistory = true
+        historyPage = 1
         do {
-            let resp: [Shift] = try await api.request(path: "/shifts/history")
+            let resp = try await api.getShiftHistory(page: 1)
             shiftHistory = resp
-        } catch {}
+            hasMoreHistory = resp.count >= 20
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+        isLoadingHistory = false
+    }
+
+    private func loadMoreHistory() async {
+        guard hasMoreHistory, !isLoadingHistory else { return }
+        isLoadingHistory = true
+        let nextPage = historyPage + 1
+        do {
+            let resp = try await api.getShiftHistory(page: nextPage)
+            shiftHistory.append(contentsOf: resp)
+            historyPage = nextPage
+            hasMoreHistory = resp.count >= 20
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
         isLoadingHistory = false
     }
 

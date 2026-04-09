@@ -5,6 +5,12 @@ import SwiftUI
 @MainActor
 final class POSViewModel {
 
+    enum DiscountOrigin {
+        case none
+        case manual
+        case coupon
+    }
+
     private let api = APIService.shared
     private let appState = AppState.shared
     private let l10n = L10n.shared
@@ -25,6 +31,14 @@ final class POSViewModel {
     var customerPhone: String = ""
     var orderNotes: String = ""
     var discountAmount: Double = 0
+    var discountOrigin: DiscountOrigin = .none
+    var couponCode: String = ""
+    var appliedCoupon: CouponValidationResult?
+    var loyaltyCustomer: LoyaltyCustomer?
+    var customerInsights: [CustomerInsight] = []
+    var isApplyingCoupon = false
+    var isLookingUpLoyaltyCustomer = false
+    var isLoadingCustomerInsights = false
 
     // MARK: Payment
     var showPaymentSheet = false
@@ -67,6 +81,12 @@ final class POSViewModel {
     var cartTotal: Double { cartSubtotal - discountAmount + cartVAT }
     var cartCount: Int { cartItems.reduce(0) { $0 + $1.quantity } }
     var isEmpty: Bool { cartItems.isEmpty }
+    var discountSummaryLabel: String {
+        if let coupon = appliedCoupon, let code = coupon.code ?? nonEmptyTrimmed(couponCode) {
+            return "\(l10n.discount) (\(code))"
+        }
+        return l10n.discount
+    }
 
     // MARK: Menu Cache Keys
     private let cachedCategoriesKey = "cached_menu_categories"
@@ -147,20 +167,123 @@ final class POSViewModel {
         cartItems.removeAll { $0.id == item.id }
     }
 
+    func replaceModifiers(for item: CartItem, with newModifiers: [SelectedModifier]) {
+        guard let idx = cartItems.firstIndex(where: { $0.id == item.id }) else { return }
+        cartItems[idx].selectedModifiers = newModifiers
+    }
+
     func clearCart() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
             cartItems.removeAll()
             orderType = .dineIn
-            discountAmount = 0
+            clearDiscountState()
             customerName = ""
             customerPhone = ""
+            loyaltyCustomer = nil
             orderNotes = ""
             selectedTable = nil
         }
     }
 
     func applyDiscount(_ amount: Double) {
+        appliedCoupon = nil
+        couponCode = ""
+        discountOrigin = .manual
         discountAmount = min(amount, cartSubtotal)
+    }
+
+    func clearDiscountState() {
+        discountAmount = 0
+        discountOrigin = .none
+        appliedCoupon = nil
+        couponCode = ""
+    }
+
+    func applyCoupon() async -> Bool {
+        let trimmedCode = nonEmptyTrimmed(couponCode)?.uppercased() ?? ""
+        guard !trimmedCode.isEmpty else {
+            appState.showError(l10n.enterCouponCode)
+            return false
+        }
+        guard cartSubtotal > 0 else {
+            appState.showError(l10n.addItemsBeforeCoupon)
+            return false
+        }
+
+        isApplyingCoupon = true
+        defer { isApplyingCoupon = false }
+
+        do {
+            let result = try await api.validateCoupon(code: trimmedCode, orderSubtotal: cartSubtotal)
+            guard result.valid else {
+                clearDiscountState()
+                let message = result.message.isEmpty ? l10n.couponInvalid : result.message
+                error = message
+                appState.showError(message)
+                return false
+            }
+
+            appliedCoupon = result
+            couponCode = (result.code ?? trimmedCode).uppercased()
+            discountOrigin = .coupon
+            discountAmount = min(result.discountAmount, cartSubtotal)
+            appState.showSuccess(result.message.isEmpty ? l10n.couponApplied(couponCode) : result.message)
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            appState.showError(error.localizedDescription)
+            return false
+        }
+    }
+
+    func removeCoupon() {
+        guard discountOrigin == .coupon || appliedCoupon != nil else { return }
+        clearDiscountState()
+    }
+
+    func loadCustomerInsights(limit: Int = 12) async {
+        guard !isLoadingCustomerInsights else { return }
+        isLoadingCustomerInsights = true
+        defer { isLoadingCustomerInsights = false }
+
+        do {
+            customerInsights = try await api.fetchCustomerInsights(limit: limit)
+        } catch {
+            customerInsights = []
+        }
+    }
+
+    func lookupLoyaltyCustomer() async {
+        let trimmedPhone = nonEmptyTrimmed(customerPhone) ?? ""
+        guard !trimmedPhone.isEmpty else {
+            loyaltyCustomer = nil
+            appState.showError(l10n.enterCustomerPhone)
+            return
+        }
+
+        isLookingUpLoyaltyCustomer = true
+        defer { isLookingUpLoyaltyCustomer = false }
+
+        do {
+            let customer = try await api.lookupLoyaltyCustomer(phone: trimmedPhone)
+            loyaltyCustomer = customer
+            customerPhone = customer.phone.isEmpty ? trimmedPhone : customer.phone
+            if customerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                customerName = customer.name
+            }
+            appState.showSuccess(l10n.loyaltyCustomerLoaded)
+        } catch {
+            loyaltyCustomer = nil
+            self.error = error.localizedDescription
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    func selectCustomerInsight(_ insight: CustomerInsight) {
+        customerName = insight.name
+        customerPhone = insight.phone ?? ""
+        guard let matchingPhone = insight.phone, !matchingPhone.isEmpty else { return }
+        Task { await lookupLoyaltyCustomer() }
     }
 
     // MARK: Place Order
@@ -195,7 +318,8 @@ final class POSViewModel {
             notes: orderNotes.isEmpty ? nil : orderNotes,
             customerName: customerName.isEmpty ? nil : customerName,
             customerPhone: customerPhone.isEmpty ? nil : customerPhone,
-            localId: localId)
+            localId: localId,
+            couponCode: discountOrigin == .coupon ? nonEmptyTrimmed(couponCode) : nil)
 
         do {
             let order = try await api.createOrder(create)
@@ -239,7 +363,8 @@ final class POSViewModel {
             notes: orderNotes.isEmpty ? nil : orderNotes,
             customerName: customerName.isEmpty ? nil : customerName,
             customerPhone: customerPhone.isEmpty ? nil : customerPhone,
-            localId: localId)
+            localId: localId,
+            couponCode: discountOrigin == .coupon ? nonEmptyTrimmed(couponCode) : nil)
 
         offlineManager.queueOrder(create, paymentMethod: paymentMethod.rawValue, cashTendered: cashTendered)
 
@@ -362,6 +487,10 @@ final class POSViewModel {
                 customerPhone = ""
                 orderNotes = detailedOrder.notes ?? ""
                 discountAmount = detailedOrder.discountAmount ?? 0
+                discountOrigin = discountAmount > 0 ? .manual : .none
+                appliedCoupon = nil
+                couponCode = ""
+                loyaltyCustomer = nil
             }
 
             appState.selectedTab = .pos
@@ -419,5 +548,10 @@ final class POSViewModel {
     func productNeedsModifiers(_ product: Product) -> Bool {
         guard let mods = product.modifiers else { return false }
         return !mods.isEmpty
+    }
+
+    private func nonEmptyTrimmed(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

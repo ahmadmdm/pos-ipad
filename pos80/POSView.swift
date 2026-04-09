@@ -43,6 +43,7 @@ struct POSView: View {
                 Rectangle().fill(AppTheme.border).frame(width: 1)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(AppTheme.bg)
         .sheet(isPresented: $vm.showPaymentSheet) {
             PaymentView()
@@ -769,6 +770,7 @@ struct SheetContainer<Content: View>: View {
 // MARK: - Modifier Selection View
 struct ModifierSelectionView: View {
     let product: Product
+    var initialModifiers: [SelectedModifier] = []
     let onConfirm: ([SelectedModifier]) -> Void
     @State private var selections: [String: Set<String>] = [:]
     @Environment(\.dismiss) var dismiss
@@ -865,17 +867,28 @@ struct ModifierSelectionView: View {
                 Button {
                     onConfirm(selectedModifiers)
                 } label: {
-                    Text("Add to Cart")
+                    Text(initialModifiers.isEmpty ? "Add to Cart" : "Save Changes")
                 }
                 .buttonStyle(PrimaryButtonStyle(isFullWidth: true))
             }
             .padding(20)
         }
         .onAppear {
-            // Pre-select defaults
-            for group in product.modifiers ?? [] {
-                let defaults = group.options.filter { $0.isDefault }.map { $0.id }
-                if !defaults.isEmpty { selections[group.id] = Set(defaults) }
+            // Pre-populate from initial modifiers (editing existing cart item)
+            if !initialModifiers.isEmpty {
+                guard let mods = product.modifiers else { return }
+                for group in mods {
+                    let preSelected = group.options
+                        .filter { opt in initialModifiers.contains(where: { $0.id == opt.id }) }
+                        .map { $0.id }
+                    if !preSelected.isEmpty { selections[group.id] = Set(preSelected) }
+                }
+            } else {
+                // Pre-select defaults for new item
+                for group in product.modifiers ?? [] {
+                    let defaults = group.options.filter { $0.isDefault }.map { $0.id }
+                    if !defaults.isEmpty { selections[group.id] = Set(defaults) }
+                }
             }
         }
     }

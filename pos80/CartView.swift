@@ -16,23 +16,35 @@ struct CartView: View {
     let showNote: () -> Void
 
     @Environment(\.undoManager) private var undoManager
+    @State private var editingModifierItem: CartItem?
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
+            // Header — fixed at top
             cartHeader
 
-            // Items
             if vm.isEmpty {
                 emptyCart
             } else {
+                // safeAreaInset pins summary reliably: scroll is automatically inset
+                // by the summary height so items never hide behind it
                 cartItemsList
+                    .frame(maxHeight: .infinity)
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        cartSummary
+                    }
             }
-
-            // Summary + Pay
-            if !vm.isEmpty {
-                cartSummary
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .sheet(item: $editingModifierItem) { cartItem in
+            ModifierSelectionView(
+                product: cartItem.product,
+                initialModifiers: cartItem.selectedModifiers
+            ) { newModifiers in
+                vm.replaceModifiers(for: cartItem, with: newModifiers)
+                editingModifierItem = nil
             }
+            .environment(vm)
         }
     }
 
@@ -144,7 +156,10 @@ struct CartView: View {
                                         v.addToCart(product: item.product)
                                     }
                                     withAnimation { vm.removeItem(item) }
-                                })
+                                },
+                                onEditModifiers: item.product.modifiers?.isEmpty == false ? {
+                                    editingModifierItem = item
+                                } : nil)
                 }
             }
         }
@@ -161,25 +176,25 @@ struct CartView: View {
         VStack(spacing: 0) {
             Divider().background(AppTheme.border)
 
-            VStack(spacing: 10) {
-                // Quick actions
+            VStack(spacing: 6) {
+                // Quick actions — compact to save vertical space
                 HStack(spacing: 8) {
                     QuickActionButton(icon: "note.text", label: l10n.note,
-                                      hasValue: !vm.orderNotes.isEmpty, action: showNote)
+                                      hasValue: !vm.orderNotes.isEmpty, compact: true, action: showNote)
                     QuickActionButton(icon: "tag.fill", label: l10n.discount,
-                                      hasValue: vm.discountAmount > 0, action: showDiscount)
-                    QuickActionButton(icon: "clock.fill", label: l10n.hold) {
+                                      hasValue: vm.discountAmount > 0, compact: true, action: showDiscount)
+                    QuickActionButton(icon: "clock.fill", label: l10n.hold, compact: true) {
                         Task { await vm.holdCurrentOrder() }
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 12)
+                .padding(.top, 8)
 
                 // Subtotal rows
-                VStack(spacing: 6) {
+                VStack(spacing: 3) {
                     SummaryRow(label: l10n.subtotal, value: vm.cartSubtotal.sarFormatted)
                     if vm.discountAmount > 0 {
-                        SummaryRow(label: l10n.discount,
+                        SummaryRow(label: vm.discountSummaryLabel,
                                    value: "-\(vm.discountAmount.sarFormatted)",
                                    valueColor: AppTheme.success)
                     }
@@ -192,7 +207,7 @@ struct CartView: View {
                                 valueColor: AppTheme.accent)
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 4)
+                .padding(.top, 2)
 
                 // Pay button
                 Button {
@@ -200,19 +215,19 @@ struct CartView: View {
                 } label: {
                     HStack {
                         Image(systemName: "creditcard.fill")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(.system(size: 17, weight: .semibold))
                         Text("Charge  \(vm.cartTotal.sarFormatted)")
-                            .font(AppTheme.headline(17))
+                            .font(AppTheme.headline(16))
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 56)
+                    .frame(height: 50)
                     .background(AppTheme.accentGradH)
                     .cornerRadius(AppTheme.r16)
-                    .shadow(color: AppTheme.accent.opacity(0.5), radius: 16, y: 6)
+                    .shadow(color: AppTheme.accent.opacity(0.45), radius: 12, y: 4)
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 16)
-                .padding(.bottom, 16)
+                .padding(.bottom, 12)
                 .disabled(appState.currentShift == nil && offlineManager.isOnline)
                 .overlay(alignment: .top) {
                     if appState.currentShift == nil && offlineManager.isOnline {
@@ -229,6 +244,7 @@ struct CartView: View {
                 }
             }
         }
+        .background(AppTheme.surface)
     }
 }
 
@@ -238,6 +254,7 @@ struct CartItemRow: View {
     let onIncrement: () -> Void
     let onDecrement: () -> Void
     let onRemove: () -> Void
+    var onEditModifiers: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -278,10 +295,21 @@ struct CartItemRow: View {
                     .foregroundColor(AppTheme.textMuted)
                     .lineLimit(1)
                 if !item.modifierSummary.isEmpty {
-                    Text(item.modifierSummary)
-                        .font(AppTheme.caption(11))
-                        .foregroundColor(AppTheme.textMuted)
-                        .lineLimit(1)
+                    Button(action: { onEditModifiers?() }) {
+                        HStack(spacing: 3) {
+                            Text(item.modifierSummary)
+                                .font(AppTheme.caption(11))
+                                .foregroundColor(AppTheme.textMuted)
+                                .lineLimit(1)
+                            if onEditModifiers != nil {
+                                Image(systemName: "pencil")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(AppTheme.accent.opacity(0.7))
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(onEditModifiers == nil)
                 }
             }
 
@@ -316,7 +344,7 @@ struct SummaryRow: View {
 
     var body: some View {
         HStack {
-            Text(label).font(labelFont).foregroundColor(AppTheme.textSecondary)
+            Text(label).font(labelFont).foregroundColor(AppTheme.textSecondary).lineLimit(1)
             Spacer()
             Text(value).font(valueFont).foregroundColor(valueColor)
         }
@@ -328,14 +356,15 @@ struct QuickActionButton: View {
     let icon: String
     let label: String
     var hasValue: Bool = false
+    var compact: Bool = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 4) {
+            VStack(spacing: compact ? 3 : 4) {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: icon)
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: compact ? 14 : 16, weight: .medium))
                         .foregroundColor(hasValue ? AppTheme.accent : AppTheme.textSecondary)
                     if hasValue {
                         Circle().fill(AppTheme.accent).frame(width: 8, height: 8)
@@ -343,11 +372,11 @@ struct QuickActionButton: View {
                     }
                 }
                 Text(label)
-                    .font(AppTheme.caption(10))
+                    .font(AppTheme.caption(compact ? 9 : 10))
                     .foregroundColor(hasValue ? AppTheme.accent : AppTheme.textMuted)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
+            .padding(.vertical, compact ? 8 : 10)
             .background(hasValue ? AppTheme.accent.opacity(0.1) : AppTheme.card)
             .cornerRadius(AppTheme.r8)
             .overlay(RoundedRectangle(cornerRadius: AppTheme.r8)

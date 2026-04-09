@@ -14,84 +14,85 @@ struct MainView: View {
     }
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [AppTheme.bg, Color(hex: "FBF5EC"), Color(hex: "EFDCC7")],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing)
-            .ignoresSafeArea()
+        // No GeometryReader — SwiftUI constrains views within the safe area by default.
+        // The HStack fills the safe-area-bounded space from WindowGroup.
+        // .background { .ignoresSafeArea() } extends ONLY the decoration behind the status bar.
+        HStack(spacing: 0) {
+            sidebar
 
-            Circle()
-                .fill(AppTheme.accent.opacity(0.08))
-                .frame(width: 420, height: 420)
-                .blur(radius: 70)
-                .offset(x: -340, y: -220)
+            VStack(spacing: 0) {
+                if showsManagerConsole {
+                    managerConsole()
+                }
 
-            Circle()
-                .fill(AppTheme.info.opacity(0.06))
-                .frame(width: 360, height: 360)
-                .blur(radius: 80)
-                .offset(x: 360, y: 260)
-
-            HStack(spacing: 0) {
-                // Sidebar
-                sidebar
-
-                // Content
-                VStack(spacing: 0) {
-                    if showsManagerConsole {
-                        managerConsole
+                ZStack {
+                    switch appState.selectedTab {
+                    case .pos:      POSView().environment(posVM)
+                    case .orders:   OrdersView()
+                    case .tables:   TablesView().environment(posVM)
+                    case .shift:    ShiftView()
+                    case .reports:  ReportsView()
+                    case .settings: SettingsView()
                     }
-
-                    ZStack {
-                        switch appState.selectedTab {
-                        case .pos:      POSView().environment(posVM)
-                        case .orders:   OrdersView()
-                        case .tables:   TablesView().environment(posVM)
-                        case .shift:    ShiftView()
-                        case .reports:  ReportsView()
-                        case .settings: SettingsView()
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+        .background {
+            ZStack {
+                LinearGradient(
+                    colors: [AppTheme.bg, Color(hex: "FBF5EC"), Color(hex: "EFDCC7")],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing)
 
+                Circle()
+                    .fill(AppTheme.accent.opacity(0.08))
+                    .frame(width: 420, height: 420)
+                    .blur(radius: 70)
+                    .offset(x: -340, y: -220)
+
+                Circle()
+                    .fill(AppTheme.info.opacity(0.06))
+                    .frame(width: 360, height: 360)
+                    .blur(radius: 80)
+                    .offset(x: 360, y: 260)
+            }
+            .ignoresSafeArea()
+        }
+        .overlay(alignment: .top) {
             if appState.unreadBroadcastCount > 0 && appState.selectedTab != .settings {
-                VStack {
-                    HStack(spacing: 12) {
-                        Image(systemName: "megaphone.fill")
-                            .foregroundColor(AppTheme.warning)
-                        Text(l10n.unreadBroadcasts(appState.unreadBroadcastCount))
-                            .font(AppTheme.caption(13))
-                            .foregroundColor(AppTheme.textPrimary)
-                        Spacer()
-                        Button(l10n.viewBroadcasts) {
-                            appState.selectedTab = .settings
-                        }
-                        .font(AppTheme.caption(12))
+                HStack(spacing: 12) {
+                    Image(systemName: "megaphone.fill")
                         .foregroundColor(AppTheme.warning)
+                    Text(l10n.unreadBroadcasts(appState.unreadBroadcastCount))
+                        .font(AppTheme.caption(13))
+                        .foregroundColor(AppTheme.textPrimary)
+                    Spacer()
+                    Button(l10n.viewBroadcasts) {
+                        appState.selectedTab = .settings
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .background(AppTheme.card)
-                    .cornerRadius(AppTheme.r12)
-                    .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
-                        .strokeBorder(AppTheme.warning.opacity(0.25), lineWidth: 1))
-                    .shadow(color: AppTheme.shadow, radius: 18, y: 8)
-                    .padding(.top, 20)
-                    .padding(.horizontal, 96)
+                    .font(AppTheme.caption(12))
+                    .foregroundColor(AppTheme.warning)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(AppTheme.card)
+                .cornerRadius(AppTheme.r12)
+                .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
+                    .strokeBorder(AppTheme.warning.opacity(0.25), lineWidth: 1))
+                .shadow(color: AppTheme.shadow, radius: 18, y: 8)
+                .padding(.top, 20)
+                .padding(.horizontal, 96)
+            }
+        }
+        .overlay {
+            if let toast = appState.toast {
+                VStack {
+                    ToastOverlay(toast: toast)
+                        .padding(.horizontal, 80)
                     Spacer()
                 }
-            }
-
-            // Toast overlay
-            if let toast = appState.toast {
-                ToastOverlay(toast: toast)
-                    .padding(.horizontal, 80)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.7), value: appState.toast?.id)
-                    .zIndex(999)
+                .animation(.spring(response: 0.4, dampingFraction: 0.7), value: appState.toast?.id)
             }
         }
         .task {
@@ -106,109 +107,82 @@ struct MainView: View {
         }
     }
 
-    private var managerConsole: some View {
+    private func managerConsole() -> some View {
         let snapshot = appState.managerSnapshot
 
-        return VStack(spacing: 12) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
+        return HStack(spacing: 0) {
+            // ── Brand + status ──────────────────────────────────────────────
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(snapshot.urgentAlerts.isEmpty ? AppTheme.success : AppTheme.warning)
+                    .frame(width: 7, height: 7)
+                VStack(alignment: .leading, spacing: 1) {
                     Text(l10n.managerConsoleLabel)
-                        .font(AppTheme.caption(11))
-                        .tracking(2)
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(1.8)
                         .foregroundColor(AppTheme.accent)
-                    Text(l10n.liveOperationsSnapshot)
-                        .font(AppTheme.title2(22))
-                        .foregroundColor(AppTheme.textPrimary)
                     Text(snapshotSubtitle(for: snapshot))
-                        .font(AppTheme.caption(12))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(AppTheme.textMuted)
-                }
-
-                Spacer()
-
-                HStack(spacing: 8) {
-                    quickNavButton(title: MainTab.orders.localizedName, icon: "list.bullet.clipboard.fill", tab: .orders, tint: AppTheme.info)
-                    quickNavButton(title: MainTab.reports.localizedName, icon: "chart.bar.xaxis", tab: .reports, tint: AppTheme.accent)
-                    quickNavButton(title: MainTab.shift.localizedName, icon: "clock.badge.fill", tab: .shift, tint: snapshot.hasActiveShift ? AppTheme.success : AppTheme.warning)
-                    quickNavButton(title: MainTab.settings.localizedName, icon: "gearshape.2.fill", tab: .settings, tint: AppTheme.textSecondary)
+                        .lineLimit(1)
                 }
             }
+            .padding(.leading, 20)
+            .frame(minWidth: 148, alignment: .leading)
 
-            HStack(spacing: 12) {
-                managerStatCard(
-                    title: l10n.shiftCardTitle,
+            // Separator
+            Rectangle()
+                .fill(AppTheme.border)
+                .frame(width: 1, height: 28)
+                .padding(.horizontal, 12)
+
+            // ── Live stats ─────────────────────────────────────────────────
+            HStack(spacing: 6) {
+                consoleStat(
                     value: snapshot.hasActiveShift ? l10n.shiftOpenStatus : l10n.shiftClosedStatus,
-                    detail: snapshot.hasActiveShift ? l10n.shiftReference(String((snapshot.activeShiftId ?? "").prefix(6))) : l10n.needsAttentionShort,
-                    tint: snapshot.hasActiveShift ? AppTheme.success : AppTheme.warning,
-                    icon: snapshot.hasActiveShift ? "checkmark.circle.fill" : "clock.badge.exclamationmark.fill"
-                )
-                managerStatCard(
-                    title: l10n.queueLoadTitle,
+                    icon: snapshot.hasActiveShift ? "checkmark.circle.fill" : "clock.badge.exclamationmark.fill",
+                    tint: snapshot.hasActiveShift ? AppTheme.success : AppTheme.warning
+                ) { appState.selectedTab = .shift }
+
+                consoleStat(
                     value: "\(snapshot.openOrdersCount)",
-                    detail: l10n.queueLoadDetail,
-                    tint: snapshot.openOrdersCount > 0 ? AppTheme.info : AppTheme.textSecondary,
-                    icon: "list.bullet.rectangle.portrait.fill"
-                )
-                managerStatCard(
-                    title: l10n.offlineSyncTitle,
+                    icon: "list.bullet.rectangle.portrait.fill",
+                    tint: snapshot.openOrdersCount > 0 ? AppTheme.info : AppTheme.textSecondary
+                ) { appState.selectedTab = .orders }
+
+                consoleStat(
                     value: "\(snapshot.offlinePendingCount)",
-                    detail: snapshot.isSyncing ? l10n.syncingNow : (snapshot.lastSyncError == nil ? l10n.syncStable : l10n.reviewSync),
-                    tint: snapshot.offlinePendingCount > 0 || snapshot.lastSyncError != nil ? AppTheme.warning : AppTheme.success,
-                    icon: snapshot.isOnline ? "arrow.triangle.2.circlepath.circle.fill" : "wifi.slash"
-                )
-                managerStatCard(
-                    title: l10n.broadcastsCardTitle,
+                    icon: snapshot.isOnline ? "arrow.triangle.2.circlepath.circle.fill" : "wifi.slash",
+                    tint: (snapshot.offlinePendingCount > 0 || snapshot.lastSyncError != nil) ? AppTheme.warning : AppTheme.success
+                ) { showOfflineQueue = true }
+
+                consoleStat(
                     value: "\(snapshot.unreadBroadcastCount)",
-                    detail: snapshot.unreadBroadcastCount > 0 ? l10n.unreadBroadcasts(snapshot.unreadBroadcastCount) : l10n.noPendingNotices,
-                    tint: snapshot.unreadBroadcastCount > 0 ? AppTheme.warning : AppTheme.textSecondary,
-                    icon: "megaphone.fill"
-                )
+                    icon: "megaphone.fill",
+                    tint: snapshot.unreadBroadcastCount > 0 ? AppTheme.warning : AppTheme.textSecondary
+                ) { appState.selectedTab = .settings }
             }
 
-            if snapshot.urgentAlerts.isEmpty {
-                HStack(spacing: 10) {
-                    Image(systemName: "checkmark.seal.fill")
-                        .foregroundColor(AppTheme.success)
-                    Text(l10n.operationsStableSummary)
-                        .font(AppTheme.caption(12))
-                        .foregroundColor(AppTheme.textSecondary)
-                    Spacer()
-                    Text(relativeSnapshotTime(snapshot.updatedAt))
-                        .font(AppTheme.caption(11))
-                        .foregroundColor(AppTheme.textMuted)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(AppTheme.success.opacity(0.08))
-                .cornerRadius(AppTheme.r12)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text(l10n.needsAttention)
-                            .font(AppTheme.headline(14))
-                            .foregroundColor(AppTheme.textPrimary)
-                        Spacer()
-                        Text(relativeSnapshotTime(snapshot.updatedAt))
-                            .font(AppTheme.caption(11))
-                            .foregroundColor(AppTheme.textMuted)
-                    }
+            Spacer(minLength: 8)
 
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 8, alignment: .leading)], alignment: .leading, spacing: 8) {
-                        ForEach(snapshot.urgentAlerts, id: \.self) { alert in
-                            managerAlertPill(alert)
-                        }
-                    }
-                }
+            // Separator
+            Rectangle()
+                .fill(AppTheme.border)
+                .frame(width: 1, height: 28)
+                .padding(.horizontal, 12)
+
+            // ── Quick-nav (icon only) ───────────────────────────────────────
+            HStack(spacing: 4) {
+                consoleNavBtn(icon: "list.bullet.clipboard.fill", tab: .orders, tint: AppTheme.info)
+                consoleNavBtn(icon: "chart.bar.xaxis",            tab: .reports, tint: AppTheme.accent)
+                consoleNavBtn(icon: "clock.badge.fill",           tab: .shift,
+                              tint: snapshot.hasActiveShift ? AppTheme.success : AppTheme.warning)
+                consoleNavBtn(icon: "gearshape.2.fill",           tab: .settings, tint: AppTheme.textSecondary)
             }
+            .padding(.trailing, 16)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
-        .background(
-            LinearGradient(
-                colors: [AppTheme.surface.opacity(0.95), Color(hex: "F5EBDD")],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing)
-        )
+        .frame(height: 52)
+        .background(AppTheme.surface.opacity(0.98))
         .overlay(alignment: .bottom) {
             Rectangle().fill(AppTheme.border).frame(height: 1)
         }
@@ -237,55 +211,39 @@ struct MainView: View {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 
-    private func quickNavButton(title: String, icon: String, tab: MainTab, tint: Color) -> some View {
+    // MARK: - Console Helpers
+    private func consoleStat(value: String, icon: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(tint)
+                Text(value)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(AppTheme.textPrimary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(tint.opacity(0.10))
+            .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func consoleNavBtn(icon: String, tab: MainTab, tint: Color) -> some View {
         Button {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 appState.selectedTab = tab
             }
         } label: {
-            VStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(tint)
-                    .frame(width: 36, height: 36)
-                    .background(tint.opacity(0.12))
-                    .cornerRadius(10)
-                Text(title)
-                    .font(AppTheme.caption(10))
-                    .foregroundColor(AppTheme.textSecondary)
-            }
-            .frame(width: 72)
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(appState.selectedTab == tab ? tint : AppTheme.textMuted)
+                .frame(width: 34, height: 34)
+                .background(appState.selectedTab == tab ? tint.opacity(0.12) : Color.clear)
+                .cornerRadius(9)
         }
         .buttonStyle(.plain)
-    }
-
-    private func managerStatCard(title: String, value: String, detail: String, tint: Color, icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(title)
-                    .font(AppTheme.caption(11))
-                    .foregroundColor(AppTheme.textMuted)
-                Spacer()
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(tint)
-            }
-            Text(value)
-                .font(AppTheme.title2(20))
-                .foregroundColor(AppTheme.textPrimary)
-            Text(detail)
-                .font(AppTheme.caption(11))
-                .foregroundColor(AppTheme.textSecondary)
-                .lineLimit(2)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(AppTheme.card)
-        .cornerRadius(AppTheme.r16)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.r16)
-                .strokeBorder(tint.opacity(0.18), lineWidth: 1)
-        )
     }
 
     private func managerAlertPill(_ alert: ManagerAlert) -> some View {

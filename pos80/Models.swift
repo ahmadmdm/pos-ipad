@@ -12,6 +12,8 @@ struct TokenResponse: Codable {
     let nameAr: String
     let tenantId: String?
     let tenantSlug: String?
+    let tenantName: String?
+    let tenantNameAr: String?
 
     enum CodingKeys: String, CodingKey {
         case accessToken = "access_token"
@@ -21,6 +23,28 @@ struct TokenResponse: Codable {
         case role, nameEn = "name_en", nameAr = "name_ar"
         case tenantId = "tenant_id"
         case tenantSlug = "tenant_slug"
+        case tenantName = "tenant_name"
+        case tenantNameAr = "tenant_name_ar"
+    }
+}
+
+struct ResolveTenantCodeRequest: Codable {
+    let tenantCode: String
+
+    enum CodingKeys: String, CodingKey {
+        case tenantCode = "tenant_code"
+    }
+}
+
+struct TenantCodeResponse: Codable, Equatable {
+    let tenantSlug: String
+    let tenantName: String
+    let tenantNameAr: String
+
+    enum CodingKeys: String, CodingKey {
+        case tenantSlug = "tenant_slug"
+        case tenantName = "tenant_name"
+        case tenantNameAr = "tenant_name_ar"
     }
 }
 
@@ -251,6 +275,7 @@ struct OrderCreate: Codable {
     let customerName: String?
     let customerPhone: String?
     let localId: String?
+    let couponCode: String?
 
     enum CodingKeys: String, CodingKey {
         case orderType = "order_type"
@@ -259,6 +284,7 @@ struct OrderCreate: Codable {
         case customerName = "customer_name"
         case customerPhone = "customer_phone"
         case localId = "local_id"
+        case couponCode = "coupon_code"
     }
 }
 
@@ -309,6 +335,151 @@ struct DiscountRequest: Codable {
     enum CodingKeys: String, CodingKey {
         case discountAmount = "discount_amount"
         case reason
+    }
+}
+
+struct CouponValidateRequest: Codable {
+    let code: String
+    let orderSubtotal: Double
+
+    enum CodingKeys: String, CodingKey {
+        case code
+        case orderSubtotal = "order_subtotal"
+    }
+}
+
+struct CouponValidationResult: Codable {
+    let valid: Bool
+    let couponId: String?
+    let code: String?
+    let discountAmount: Double
+    let message: String
+
+    enum CodingKeys: String, CodingKey {
+        case valid, code, message
+        case couponId = "coupon_id"
+        case discountAmount = "discount_amount"
+    }
+}
+
+struct LoyaltyCustomer: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let phone: String
+    let email: String?
+    let pointsBalance: Int
+    let totalOrders: Int?
+    let totalSpent: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, phone, email
+        case nameAr = "name_ar"
+        case nameEn = "name_en"
+        case pointsBalance = "points_balance"
+        case availablePoints = "available_points"
+        case totalPoints = "total_points"
+        case points
+        case totalOrders = "total_orders"
+        case ordersCount = "orders_count"
+        case totalSpent = "total_spent"
+        case spent = "spent"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+
+        if let stringId = try? c.decode(String.self, forKey: .id) {
+            id = stringId
+        } else if let intId = try? c.decode(Int.self, forKey: .id) {
+            id = String(intId)
+        } else {
+            id = UUID().uuidString
+        }
+
+        let localizedName = (try? c.decode(String.self, forKey: .name))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nameEn = (try? c.decode(String.self, forKey: .nameEn))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nameAr = (try? c.decode(String.self, forKey: .nameAr))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidateNames: [String?] = [localizedName, nameEn, nameAr]
+        var resolvedName = "Customer"
+        for candidate in candidateNames {
+            guard let candidate, !candidate.isEmpty else { continue }
+            resolvedName = candidate
+            break
+        }
+        name = resolvedName
+
+        phone = (try? c.decode(String.self, forKey: .phone)) ?? ""
+        email = try? c.decode(String.self, forKey: .email)
+        pointsBalance = (try? c.decode(Int.self, forKey: .pointsBalance))
+            ?? (try? c.decode(Int.self, forKey: .availablePoints))
+            ?? (try? c.decode(Int.self, forKey: .totalPoints))
+            ?? (try? c.decode(Int.self, forKey: .points))
+            ?? 0
+        totalOrders = (try? c.decode(Int.self, forKey: .totalOrders))
+            ?? (try? c.decode(Int.self, forKey: .ordersCount))
+        totalSpent = (try? c.decode(Double.self, forKey: .totalSpent))
+            ?? (try? c.decode(Double.self, forKey: .spent))
+    }
+}
+
+struct CustomerInsight: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let phone: String?
+    let pointsBalance: Int
+    let totalOrders: Int?
+    let totalSpent: Double?
+    let lastOrderAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, phone
+        case nameAr = "name_ar"
+        case nameEn = "name_en"
+        case pointsBalance = "points_balance"
+        case availablePoints = "available_points"
+        case points
+        case totalOrders = "total_orders"
+        case ordersCount = "orders_count"
+        case totalSpent = "total_spent"
+        case spent = "spent"
+        case lastOrderAt = "last_order_at"
+        case latestOrderAt = "latest_order_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let phoneValue = try? c.decode(String.self, forKey: .phone)
+        let primaryName = (try? c.decode(String.self, forKey: .name))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nameEn = (try? c.decode(String.self, forKey: .nameEn))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nameAr = (try? c.decode(String.self, forKey: .nameAr))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidateNames: [String?] = [primaryName, nameEn, nameAr]
+        var resolvedName = "Customer"
+        for candidate in candidateNames {
+            guard let candidate, !candidate.isEmpty else { continue }
+            resolvedName = candidate
+            break
+        }
+        name = resolvedName
+
+        if let stringId = try? c.decode(String.self, forKey: .id) {
+            id = stringId
+        } else if let intId = try? c.decode(Int.self, forKey: .id) {
+            id = String(intId)
+        } else {
+            id = phoneValue ?? name
+        }
+
+        phone = phoneValue
+        pointsBalance = (try? c.decode(Int.self, forKey: .pointsBalance))
+            ?? (try? c.decode(Int.self, forKey: .availablePoints))
+            ?? (try? c.decode(Int.self, forKey: .points))
+            ?? 0
+        totalOrders = (try? c.decode(Int.self, forKey: .totalOrders))
+            ?? (try? c.decode(Int.self, forKey: .ordersCount))
+        totalSpent = (try? c.decode(Double.self, forKey: .totalSpent))
+            ?? (try? c.decode(Double.self, forKey: .spent))
+        lastOrderAt = (try? c.decode(String.self, forKey: .lastOrderAt))
+            ?? (try? c.decode(String.self, forKey: .latestOrderAt))
     }
 }
 

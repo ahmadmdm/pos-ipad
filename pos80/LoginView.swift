@@ -4,6 +4,7 @@ import SwiftUI
 struct LoginView: View {
     @Environment(AppState.self) var appState
     private let l10n = L10n.shared
+    private let api = APIService.shared
     @State private var email = ""
     @State private var password = ""
     @State private var showPassword = false
@@ -18,6 +19,9 @@ struct LoginView: View {
     @State private var shakeOffset: CGFloat = 0
     @State private var showServerConfig = false
     @State private var serverURLDraft: String = APIConfig.baseURL
+    @State private var tenantCode = APIService.shared.tenantCode ?? ""
+    @State private var resolvedTenant = APIService.shared.resolvedTenant
+    @State private var isResolvingTenant = false
 
     private var serverURLWarning: String? {
         let candidate = serverURLDraft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -26,6 +30,25 @@ struct LoginView: View {
     }
 
     enum LoginMode { case password, pin }
+
+    private var normalizedTenantCode: String {
+        tenantCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
+    private var isTenantReady: Bool {
+        guard let resolvedTenant else { return false }
+        return !normalizedTenantCode.isEmpty
+            && normalizedTenantCode == (api.tenantCode ?? "").uppercased()
+            && api.tenantSlug == resolvedTenant.tenantSlug
+    }
+
+    private func usesWideLayout(_ geo: GeometryProxy) -> Bool {
+        geo.size.width > 1000
+    }
+
+    private func usesCompactHeight(_ geo: GeometryProxy) -> Bool {
+        geo.size.height < 900
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -58,16 +81,28 @@ struct LoginView: View {
                 }
                 .ignoresSafeArea()
 
-                HStack(spacing: 0) {
-                    // Left branding panel
-                    brandingPanel(geo: geo)
-
-                    // Right login panel
-                    loginPanel(geo: geo)
+                ScrollView(.vertical, showsIndicators: false) {
+                    Group {
+                        if usesWideLayout(geo) {
+                            HStack(spacing: 0) {
+                                brandingPanel(geo: geo, compactHeight: usesCompactHeight(geo), wideLayout: true)
+                                loginPanel(geo: geo, compactHeight: usesCompactHeight(geo), wideLayout: true)
+                            }
+                        } else {
+                            VStack(spacing: 20) {
+                                brandingPanel(geo: geo, compactHeight: true, wideLayout: false)
+                                loginPanel(geo: geo, compactHeight: false, wideLayout: false)
+                            }
+                            .padding(.vertical, 20)
+                        }
+                    }
+                    .frame(minHeight: geo.size.height)
                 }
             }
         }
         .onAppear {
+            resolvedTenant = api.resolvedTenant
+            tenantCode = api.tenantCode ?? tenantCode
             withAnimation(.spring(response: 0.8, dampingFraction: 0.7).delay(0.1)) {
                 logoScale = 1
                 logoOpacity = 1
@@ -75,21 +110,30 @@ struct LoginView: View {
             withAnimation(.easeOut(duration: 0.6).delay(0.5)) {
                 formOpacity = 1
             }
-            if loginMode == .pin {
+            if loginMode == .pin, isTenantReady {
                 Task { await loadPINUsers() }
             }
         }
         .onChange(of: loginMode) { _, newMode in
-            guard newMode == .pin else { return }
+            guard newMode == .pin, isTenantReady else { return }
             Task { await loadPINUsers() }
+        }
+        .onChange(of: tenantCode) { _, newValue in
+            let normalized = newValue.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            if normalized != (api.tenantCode ?? "").uppercased() {
+                resolvedTenant = nil
+                pinUsers = []
+            }
         }
     }
 
     // MARK: - Branding Panel
     @ViewBuilder
-    private func brandingPanel(geo: GeometryProxy) -> some View {
+    private func brandingPanel(geo: GeometryProxy, compactHeight: Bool, wideLayout: Bool) -> some View {
         VStack(spacing: 0) {
-            Spacer()
+            if wideLayout {
+                Spacer(minLength: compactHeight ? 16 : 24)
+            }
             VStack(alignment: .leading, spacing: 24) {
                 Text("SERVICE OS")
                     .font(AppTheme.caption(11))
@@ -151,7 +195,7 @@ struct LoginView: View {
                 }
                 .opacity(logoOpacity)
             }
-            .padding(40)
+            .padding(compactHeight ? 28 : 40)
             .background(
                 RoundedRectangle(cornerRadius: 36)
                     .fill(LinearGradient(
@@ -164,35 +208,39 @@ struct LoginView: View {
                     .strokeBorder(AppTheme.border, lineWidth: 1)
             )
             .shadow(color: AppTheme.shadow, radius: 30, y: 14)
-            .padding(.horizontal, 36)
-            Spacer()
+            .padding(.horizontal, wideLayout ? (compactHeight ? 20 : 36) : 20)
 
-            Text(l10n.poweredBy)
-                .font(AppTheme.caption())
-                .foregroundColor(AppTheme.textMuted)
-                .padding(.bottom, 32)
+            if wideLayout {
+                Spacer(minLength: compactHeight ? 16 : 24)
+
+                Text(l10n.poweredBy)
+                    .font(AppTheme.caption())
+                    .foregroundColor(AppTheme.textMuted)
+                    .padding(.bottom, compactHeight ? 16 : 32)
+            }
         }
-        .frame(width: geo.size.width * 0.42)
+        .frame(maxWidth: wideLayout ? min(geo.size.width * 0.44, 560) : min(geo.size.width - 40, 760))
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Login Panel
     @ViewBuilder
-    private func loginPanel(geo: GeometryProxy) -> some View {
+    private func loginPanel(geo: GeometryProxy, compactHeight: Bool, wideLayout: Bool) -> some View {
         ZStack {
             // Panel background
             LinearGradient(
                 colors: [AppTheme.surface, Color(hex: "F6EBDD")],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing)
-                .overlay(alignment: .leading) {
+                .overlay(alignment: wideLayout ? .leading : .top) {
                     Rectangle()
                         .fill(AppTheme.border)
-                        .frame(width: 1)
+                        .frame(width: wideLayout ? 1 : nil, height: wideLayout ? nil : 1)
                 }
 
             VStack(spacing: 0) {
-                Spacer()
-                VStack(spacing: 32) {
+                Spacer(minLength: compactHeight ? 20 : 32)
+                VStack(spacing: compactHeight ? 24 : 32) {
                     // Header
                     VStack(spacing: 6) {
                         Text(l10n.welcomeBack)
@@ -202,6 +250,8 @@ struct LoginView: View {
                             .font(AppTheme.body())
                             .foregroundColor(AppTheme.textSecondary)
                     }
+
+                    tenantCodeSection
 
                     // Mode toggle
                     modePicker
@@ -230,8 +280,8 @@ struct LoginView: View {
                         .offset(x: shakeOffset)
                     }
                 }
-                .frame(maxWidth: 380)
-                .padding(32)
+                .frame(maxWidth: compactHeight ? 420 : 380)
+                .padding(compactHeight ? 24 : 32)
                 .background(AppTheme.card.opacity(0.92))
                 .cornerRadius(28)
                 .overlay(
@@ -239,7 +289,8 @@ struct LoginView: View {
                         .strokeBorder(AppTheme.border, lineWidth: 1)
                 )
                 .shadow(color: AppTheme.shadow, radius: 24, y: 10)
-                Spacer()
+                .padding(.horizontal, 20)
+                Spacer(minLength: compactHeight ? 16 : 24)
 
                 // Server config button
                 VStack(spacing: 0) {
@@ -274,11 +325,12 @@ struct LoginView: View {
                             .padding(.top, 8)
                     }
                 }
-                .padding(.bottom, 24)
+                .padding(.bottom, compactHeight ? 16 : 24)
             }
             .opacity(formOpacity)
         }
-        .frame(width: geo.size.width * 0.58)
+        .frame(maxWidth: wideLayout ? min(geo.size.width * 0.56, 720) : .infinity)
+        .frame(minHeight: wideLayout ? geo.size.height : nil)
         .sheet(isPresented: $showServerConfig) {
             ServerConfigSheet(urlDraft: $serverURLDraft)
         }
@@ -358,6 +410,10 @@ struct LoginView: View {
             // Submit
             Button {
                 Task {
+                    guard await ensureTenantResolved() else {
+                        triggerShake()
+                        return
+                    }
                     await appState.login(email: email, password: password)
                     if appState.errorMessage != nil { triggerShake() }
                 }
@@ -371,7 +427,7 @@ struct LoginView: View {
                 }
             }
             .buttonStyle(PrimaryButtonStyle(isFullWidth: true))
-            .disabled(email.isEmpty || password.isEmpty || appState.isLoading)
+            .disabled(email.isEmpty || password.isEmpty || appState.isLoading || isResolvingTenant)
         }
     }
 
@@ -417,6 +473,10 @@ struct LoginView: View {
 
             Button {
                 Task {
+                    guard await ensureTenantResolved() else {
+                        triggerShake()
+                        return
+                    }
                     let pin = pinDigits.joined()
                     await appState.loginWithPIN(email: email, pin: pin)
                     if appState.errorMessage != nil {
@@ -435,7 +495,77 @@ struct LoginView: View {
                 }
             }
             .buttonStyle(PrimaryButtonStyle(isFullWidth: true))
-            .disabled(email.isEmpty || pinDigits.joined().count < 4 || appState.isLoading)
+            .disabled(email.isEmpty || pinDigits.joined().count < 4 || appState.isLoading || isResolvingTenant)
+        }
+    }
+
+    private var tenantCodeSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(l10n.tenantCode)
+                .font(AppTheme.caption())
+                .foregroundColor(AppTheme.textMuted)
+
+            HStack(spacing: 12) {
+                HStack(spacing: 12) {
+                    Image(systemName: "building.2.crop.circle")
+                        .foregroundColor(AppTheme.textMuted)
+                        .frame(width: 20)
+                    TextField(l10n.tenantCodePlaceholder, text: $tenantCode)
+                        .font(AppTheme.body())
+                        .foregroundColor(AppTheme.textPrimary)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.characters)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            Task { _ = await resolveTenantCode() }
+                        }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(AppTheme.card)
+                .cornerRadius(AppTheme.r12)
+                .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
+                    .strokeBorder(AppTheme.border, lineWidth: 1))
+
+                Button {
+                    Task { _ = await resolveTenantCode() }
+                } label: {
+                    ZStack {
+                        if isResolvingTenant {
+                            ProgressView().tint(.white)
+                        } else {
+                            Text(l10n.resolveTenant)
+                        }
+                    }
+                    .frame(minWidth: 92)
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(normalizedTenantCode.isEmpty || isResolvingTenant || (isTenantReady && normalizedTenantCode == (api.tenantCode ?? "").uppercased()))
+            }
+
+            if let resolvedTenant {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundColor(AppTheme.success)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(l10n.tenantResolved)
+                            .font(AppTheme.caption(11))
+                            .foregroundColor(AppTheme.success)
+                        Text(l10n.isArabic ? resolvedTenant.tenantNameAr : resolvedTenant.tenantName)
+                            .font(AppTheme.headline(14))
+                            .foregroundColor(AppTheme.textPrimary)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(AppTheme.success.opacity(0.08))
+                .cornerRadius(AppTheme.r12)
+            } else {
+                Text(l10n.enterTenantCodeFirst)
+                    .font(AppTheme.caption())
+                    .foregroundColor(AppTheme.textMuted)
+            }
         }
     }
 
@@ -454,6 +584,10 @@ struct LoginView: View {
                 NumButton(label: "0") { addPinDigit("0") }
                 NumButton(label: "✓", accent: true) {
                     Task {
+                        guard await ensureTenantResolved() else {
+                            triggerShake()
+                            return
+                        }
                         let pin = pinDigits.joined()
                         guard pin.count == 4 else { return }
                         await appState.loginWithPIN(email: email, pin: pin)
@@ -545,16 +679,47 @@ struct LoginView: View {
     }
 
     private func loadPINUsers() async {
-        guard APIService.shared.tenantSlug != nil else {
+        guard isTenantReady else {
             pinUsers = []
             return
         }
         isLoadingPINUsers = true
         defer { isLoadingPINUsers = false }
         do {
-            pinUsers = try await APIService.shared.fetchPOSUsers()
+            pinUsers = try await api.fetchPOSUsers()
         } catch {
             pinUsers = []
+        }
+    }
+
+    private func ensureTenantResolved() async -> Bool {
+        guard !isTenantReady else { return true }
+        return await resolveTenantCode()
+    }
+
+    private func resolveTenantCode() async -> Bool {
+        let code = normalizedTenantCode
+        guard !code.isEmpty else {
+            appState.errorMessage = l10n.enterTenantCodeFirst
+            return false
+        }
+
+        isResolvingTenant = true
+        appState.errorMessage = nil
+        defer { isResolvingTenant = false }
+
+        do {
+            let resolved = try await api.resolveTenantCode(code)
+            resolvedTenant = resolved
+            if loginMode == .pin {
+                await loadPINUsers()
+            }
+            return true
+        } catch {
+            resolvedTenant = nil
+            pinUsers = []
+            appState.errorMessage = error.localizedDescription
+            return false
         }
     }
 

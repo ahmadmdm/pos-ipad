@@ -764,6 +764,10 @@ struct ReceiptSettingsSection: View {
         s.receiptFooter = footer
         s.paperSize = paperSize
         s.receiptFontSize = fontSize
+        // Cache locally so PaymentView can read without a network call
+        UserDefaults.standard.set(paperSize, forKey: "paper_size")
+        UserDefaults.standard.set(fontSize,  forKey: "receipt_font_size")
+        UserDefaults.standard.set(footer,    forKey: "receipt_footer")
         do {
             settings = try await api.updateSettings(s)
             appState.showSuccess("Receipt settings saved")

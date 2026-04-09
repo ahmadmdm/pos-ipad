@@ -422,25 +422,64 @@ struct OrderDetailView: View {
                             .font(AppTheme.display(32))
                             .foregroundStyle(AppTheme.accentGrad)
                         if order.status == "paid" {
-                            Button {
-                                Task { await downloadDetailPDF() }
-                            } label: {
-                                HStack(spacing: 6) {
-                                    if isDownloadingPDF {
-                                        ProgressView().controlSize(.small)
-                                    } else {
-                                        Image(systemName: "doc.text.fill")
+                            HStack(spacing: 8) {
+                                // Receipt-sized print/share
+                                Button {
+                                    printOrderReceipt()
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "printer.fill")
+                                        Text(l10n.printReceipt)
                                     }
-                                    Text(l10n.invoicePDF)
+                                    .font(AppTheme.headline(12))
+                                    .foregroundColor(AppTheme.success)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(AppTheme.success.opacity(0.1))
+                                    .cornerRadius(8)
                                 }
-                                .font(AppTheme.headline(13))
-                                .foregroundColor(AppTheme.accent)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(AppTheme.accent.opacity(0.1))
-                                .cornerRadius(8)
+
+                                ShareLink(
+                                    item: PDFFile(data: ReceiptPrinter.shared.generateReceiptPDF(
+                                        receipt: buildReceiptDataFromOrder(order),
+                                        paperSize: UserDefaults.standard.string(forKey: "paper_size") ?? "80mm")),
+                                    preview: SharePreview("Receipt-\(order.displayNumber ?? 0).pdf",
+                                                          image: Image(systemName: "doc.text.fill"))
+                                ) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "square.and.arrow.up")
+                                        Text(l10n.downloadInvoice)
+                                    }
+                                    .font(AppTheme.headline(12))
+                                    .foregroundColor(AppTheme.accent)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(AppTheme.accent.opacity(0.1))
+                                    .cornerRadius(8)
+                                }
+
+                                // A4 Invoice PDF
+                                Button {
+                                    Task { await downloadDetailPDF() }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        if isDownloadingPDF {
+                                            ProgressView().controlSize(.small)
+                                        } else {
+                                            Image(systemName: "doc.text.fill")
+                                        }
+                                        Text(l10n.invoicePDF)
+                                    }
+                                    .font(AppTheme.headline(12))
+                                    .foregroundColor(AppTheme.textSecondary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(AppTheme.card)
+                                    .cornerRadius(8)
+                                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(AppTheme.border, lineWidth: 1))
+                                }
+                                .disabled(isDownloadingPDF)
                             }
-                            .disabled(isDownloadingPDF)
                         }
                     }
                 }
@@ -634,6 +673,54 @@ struct OrderDetailView: View {
             appState.showSuccess(l10n.voidItem)
         } catch {
             appState.toast = ToastMessage(type: .error, text: error.localizedDescription)
+        }
+    }
+
+    private func buildReceiptDataFromOrder(_ order: Order) -> ReceiptData {
+        ReceiptData(
+            storeName: APIService.shared.tenantName ?? "AMPOS",
+            storeNameAr: APIService.shared.tenantNameAr,
+            vatNumber: UserDefaults.standard.string(forKey: "vat_number"),
+            branchName: nil,
+            orderNumber: "\(order.displayNumber ?? 0)",
+            orderType: order.orderType,
+            cashierName: appState.currentUser?.nameEn ?? "Cashier",
+            items: (order.items ?? []).map { item in
+                ReceiptData.ReceiptItem(
+                    nameAr: item.productNameAr ?? "",
+                    nameEn: item.productNameEn ?? "",
+                    quantity: item.quantity,
+                    unitPrice: item.unitPrice,
+                    total: item.lineTotal ?? item.unitPrice * Double(item.quantity),
+                    modifiers: nil
+                )
+            },
+            subtotal: order.subtotal ?? 0,
+            vatAmount: order.vatAmount ?? 0,
+            total: order.totalSafe,
+            paymentMethod: order.paymentMethod?.capitalized ?? "N/A",
+            amountPaid: order.totalSafe,
+            change: 0,
+            qrData: nil,
+            footer: UserDefaults.standard.string(forKey: "receipt_footer")
+        )
+    }
+
+    private func printOrderReceipt() {
+        let receipt = buildReceiptDataFromOrder(order)
+        let paperSize = UserDefaults.standard.string(forKey: "paper_size") ?? "80mm"
+
+        Task {
+            // Try ESC/POS first
+            if let ip = UserDefaults.standard.string(forKey: "receipt_printer_ip"),
+               !ip.isEmpty,
+               let portStr = UserDefaults.standard.string(forKey: "receipt_printer_port"),
+               let port = UInt16(portStr) {
+                _ = await ReceiptPrinter.shared.printReceipt(receipt: receipt, ip: ip, port: port, paperSize: paperSize)
+                return
+            }
+            // Fallback: AirPrint
+            ReceiptPrinter.shared.printViaAirPrint(receipt: receipt, paperSize: paperSize)
         }
     }
 }

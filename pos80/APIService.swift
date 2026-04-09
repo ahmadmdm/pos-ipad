@@ -135,6 +135,9 @@ final class APIService {
     private let tokenKey        = "pos_access_token"
     private let refreshTokenKey = "pos_refresh_token"
     private let tenantSlugKey   = "pos_tenant_slug"
+    private let tenantCodeKey   = "pos_tenant_code"
+    private let tenantNameKey   = "pos_tenant_name"
+    private let tenantNameArKey = "pos_tenant_name_ar"
 
     var accessToken: String? {
         get { KeychainHelper.load(forKey: tokenKey) }
@@ -154,7 +157,44 @@ final class APIService {
         get { UserDefaults.standard.string(forKey: tenantSlugKey) }
         set { UserDefaults.standard.set(newValue, forKey: tenantSlugKey) }
     }
+    var tenantCode: String? {
+        get { UserDefaults.standard.string(forKey: tenantCodeKey) }
+        set { UserDefaults.standard.set(newValue, forKey: tenantCodeKey) }
+    }
+    var tenantName: String? {
+        get { UserDefaults.standard.string(forKey: tenantNameKey) }
+        set { UserDefaults.standard.set(newValue, forKey: tenantNameKey) }
+    }
+    var tenantNameAr: String? {
+        get { UserDefaults.standard.string(forKey: tenantNameArKey) }
+        set { UserDefaults.standard.set(newValue, forKey: tenantNameArKey) }
+    }
+    var resolvedTenant: TenantCodeResponse? {
+        guard let tenantSlug,
+              let tenantName,
+              let tenantNameAr else { return nil }
+        return TenantCodeResponse(tenantSlug: tenantSlug, tenantName: tenantName, tenantNameAr: tenantNameAr)
+    }
     var isAuthenticated: Bool { accessToken != nil }
+
+    func cacheResolvedTenant(_ resolvedTenant: TenantCodeResponse, tenantCode: String) {
+        self.tenantCode = tenantCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        tenantSlug = resolvedTenant.tenantSlug
+        tenantName = resolvedTenant.tenantName
+        tenantNameAr = resolvedTenant.tenantNameAr
+    }
+
+    func cacheAuthenticatedTenant(from token: TokenResponse) {
+        if let slug = token.tenantSlug, !slug.isEmpty {
+            tenantSlug = slug
+        }
+        if let tenantName = token.tenantName, !tenantName.isEmpty {
+            self.tenantName = tenantName
+        }
+        if let tenantNameAr = token.tenantNameAr, !tenantNameAr.isEmpty {
+            self.tenantNameAr = tenantNameAr
+        }
+    }
 
     // MARK: Generic request
     func request<T: Decodable>(
@@ -322,6 +362,14 @@ final class APIService {
         return try await request(path: "/auth/login", method: .post, formData: form, requiresAuth: false)
     }
 
+    func resolveTenantCode(_ tenantCode: String) async throws -> TenantCodeResponse {
+        let normalizedCode = tenantCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let body = ResolveTenantCodeRequest(tenantCode: normalizedCode)
+        let resolved: TenantCodeResponse = try await request(path: "/auth/resolve-tenant-code", method: .post, body: body, requiresAuth: false)
+        cacheResolvedTenant(resolved, tenantCode: normalizedCode)
+        return resolved
+    }
+
     func loginWithPIN(email: String, pin: String) async throws -> TokenResponse {
         let body = LoginPINRequest(email: email, pin: pin)
         return try await request(path: "/auth/login-pin", method: .post, body: body, requiresAuth: false)
@@ -393,6 +441,22 @@ final class APIService {
         let body = DiscountRequest(discountAmount: amount, reason: reason)
         let data = try await rawData(path: "/orders/\(id)/discount", method: .patch, body: body)
         return try decodeOrder(from: data)
+    }
+
+    func fetchCustomerInsights(limit: Int = 20) async throws -> [CustomerInsight] {
+        let data = try await rawData(path: "/orders/customers/insights?limit=\(limit)", method: .get, body: nil)
+        return try decodeFlexibleArray(CustomerInsight.self, from: data, rootKeys: ["items", "customers", "results", "data"])
+    }
+
+    func validateCoupon(code: String, orderSubtotal: Double) async throws -> CouponValidationResult {
+        let body = CouponValidateRequest(code: code, orderSubtotal: orderSubtotal)
+        return try await request(path: "/coupons/validate", method: .post, body: body)
+    }
+
+    func lookupLoyaltyCustomer(phone: String) async throws -> LoyaltyCustomer {
+        let encodedPhone = phone.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? phone
+        let data = try await rawData(path: "/loyalty/customers/lookup?phone=\(encodedPhone)", method: .get, body: nil)
+        return try decodeFlexible(LoyaltyCustomer.self, from: data, rootKeys: ["customer", "item", "data"])
     }
 
     func voidOrderItem(orderId: String, itemId: String) async throws -> Order {
@@ -498,6 +562,20 @@ final class APIService {
         return try await request(path: "/shifts/\(shiftId)/summary")
     }
 
+    func getShiftHistory(page: Int = 1, perPage: Int = 20) async throws -> [Shift] {
+        let data = try await rawData(path: "/shifts/history?page=\(page)&per_page=\(perPage)", method: .get, body: nil)
+        // Try array first (backend may return flat list)
+        if let arr = try? JSONDecoder().decode([Shift].self, from: data) {
+            return arr
+        }
+        // Try wrapped: {"items": [...]} or {"data": [...]}
+        struct Wrapped: Decodable { let items: [Shift]?; let data: [Shift]? }
+        if let w = try? JSONDecoder().decode(Wrapped.self, from: data) {
+            return w.items ?? w.data ?? []
+        }
+        return []
+    }
+
     // MARK: Reports
     func fetchDashboard(range: String = "7d", authToken: String? = nil) async throws -> DashboardSummary {
         return try await request(path: "/reports/dashboard?range=\(range)", accessTokenOverride: authToken)
@@ -581,5 +659,45 @@ final class APIService {
         default:
             return calendar.date(byAdding: .day, value: -7, to: now) ?? now
         }
+    }
+
+    private func decodeFlexible<T: Decodable>(_ type: T.Type, from data: Data, rootKeys: [String]) throws -> T {
+        let decoder = JSONDecoder()
+        if let value = try? decoder.decode(T.self, from: data) {
+            return value
+        }
+
+        let rawObject = try JSONSerialization.jsonObject(with: data)
+        if let dictionary = rawObject as? [String: Any] {
+            for key in rootKeys {
+                guard let nested = dictionary[key], JSONSerialization.isValidJSONObject(nested) else { continue }
+                let nestedData = try JSONSerialization.data(withJSONObject: nested)
+                if let value = try? decoder.decode(T.self, from: nestedData) {
+                    return value
+                }
+            }
+        }
+
+        throw NSError(domain: "API", code: 0, userInfo: [NSLocalizedDescriptionKey: "Could not parse API response."])
+    }
+
+    private func decodeFlexibleArray<T: Decodable>(_ type: T.Type, from data: Data, rootKeys: [String]) throws -> [T] {
+        let decoder = JSONDecoder()
+        if let value = try? decoder.decode([T].self, from: data) {
+            return value
+        }
+
+        let rawObject = try JSONSerialization.jsonObject(with: data)
+        if let dictionary = rawObject as? [String: Any] {
+            for key in rootKeys {
+                guard let nested = dictionary[key], JSONSerialization.isValidJSONObject(nested) else { continue }
+                let nestedData = try JSONSerialization.data(withJSONObject: nested)
+                if let value = try? decoder.decode([T].self, from: nestedData) {
+                    return value
+                }
+            }
+        }
+
+        return []
     }
 }
