@@ -124,6 +124,17 @@ final class AppState {
         AppTheme.isDark = isDark
         restoreManagerApprovalLog()
         restoreCachedSessionState()
+        // Auto-logout when refresh token is rejected by the server
+        NotificationCenter.default.addObserver(
+            forName: APIService.sessionExpiredNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.logout()
+                self?.toast = ToastMessage(type: .error, text: "Session expired. Please sign in again.")
+            }
+        }
         // Restore session if token exists
         if api.isAuthenticated {
             destination = .main

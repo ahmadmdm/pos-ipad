@@ -112,6 +112,9 @@ enum HTTPMethod: String {
 @MainActor
 final class APIService {
 
+    /// Posted on the main queue when the refresh token is rejected, indicating the session has fully expired.
+    static let sessionExpiredNotification = Notification.Name("APIServiceSessionExpired")
+
     static let shared = APIService()
     private init() {}
 
@@ -350,7 +353,14 @@ final class APIService {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONEncoder().encode(RefreshReq(refresh_token: token))
-        let (data, _) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        guard (200..<300).contains(http.statusCode) else {
+            // Refresh token is invalid or expired — notify observers so AppState can force logout
+            NotificationCenter.default.post(name: APIService.sessionExpiredNotification, object: nil)
+            throw NSError(domain: "API", code: http.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: "Session expired. Please sign in again."])
+        }
         let resp = try JSONDecoder().decode(RefreshResp.self, from: data)
         accessToken = resp.access_token
         if let rt = resp.refresh_token { refreshToken = rt }
