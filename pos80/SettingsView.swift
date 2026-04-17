@@ -33,12 +33,7 @@ struct SettingsView: View {
             Rectangle().fill(AppTheme.border).frame(width: 1)
             settingsContent
         }
-        .background(
-            LinearGradient(
-                colors: [AppTheme.bg, Color(hex: "F6ECE0")],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing)
-        )
+        .background(AppTheme.bgGradient)
         .task { await loadAll() }
     }
 
@@ -91,12 +86,7 @@ struct SettingsView: View {
             .padding(.horizontal, 16)
         }
         .frame(width: 220)
-        .background(
-            LinearGradient(
-                colors: [AppTheme.surface, Color(hex: "F2E6D7")],
-                startPoint: .top,
-                endPoint: .bottom)
-        )
+        .background(AppTheme.sidebarGradient)
     }
 
     // MARK: - Content Area
@@ -184,7 +174,7 @@ enum SettingsSection: String, CaseIterable {
         case .receipt: return AppTheme.info
         case .printer: return AppTheme.success
         case .tax:     return AppTheme.warning
-        case .staff:   return Color(hex: "#EC4899")
+        case .staff:   return AppTheme.danger
         case .about:   return AppTheme.textSecondary
         }
     }
@@ -581,7 +571,7 @@ struct GeneralSettingsSection: View {
             .padding(.vertical, 12)
         }
 
-        SettingsCard(title: l10n.appearance, icon: "paintbrush.pointed.fill", color: Color(hex: "A78BFA")) {
+        SettingsCard(title: l10n.appearance, icon: "paintbrush.pointed.fill", color: AppTheme.accent2) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(l10n.darkMode)
@@ -607,7 +597,7 @@ struct GeneralSettingsSection: View {
                         .foregroundColor(!appState.isDark ? .white : AppTheme.textSecondary)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
-                        .background(!appState.isDark ? Color(hex: "FBBF24").opacity(0.9) : AppTheme.cardHover)
+                        .background(!appState.isDark ? AppTheme.warning.opacity(0.9) : AppTheme.cardHover)
                         .cornerRadius(8)
                     }
                     Button {

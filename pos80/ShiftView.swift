@@ -88,12 +88,7 @@ struct ShiftView: View {
             }
             .padding(24)
         }
-        .background(
-            LinearGradient(
-                colors: [AppTheme.bg, Color(hex: "F8EFE4")],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing)
-        )
+        .background(AppTheme.bgGradient)
     }
 
     // MARK: - Active Shift Card
@@ -175,7 +170,7 @@ struct ShiftView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 46)
-                        .background(Color(hex: "B45309"))
+                        .background(AppTheme.warning)
                         .cornerRadius(AppTheme.r12)
                 }
                 .buttonStyle(.plain)
@@ -398,12 +393,7 @@ struct ShiftView: View {
                 }
             }
         }
-        .background(
-            LinearGradient(
-                colors: [AppTheme.surface, Color(hex: "F2E7D8")],
-                startPoint: .top,
-                endPoint: .bottom)
-        )
+        .background(AppTheme.sidebarGradient)
     }
 
     private func shiftSummaryCard(_ summary: ShiftSummary) -> some View {

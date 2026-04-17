@@ -54,27 +54,25 @@ struct LoginView: View {
         GeometryReader { geo in
             ZStack {
                 // Background gradient
-                LinearGradient(
-                    colors: [AppTheme.bg, Color(hex: "FBF5EB"), Color(hex: "EFDCC6")],
-                    startPoint: .topLeading, endPoint: .bottomTrailing)
+                AppTheme.bgGradient
                 .ignoresSafeArea()
 
                 // Decorative blobs
                 ZStack {
                     Circle()
-                        .fill(AppTheme.accent.opacity(0.14))
+                        .fill(AppTheme.accent.opacity(AppTheme.isDark ? 0.06 : 0.14))
                         .frame(width: 540, height: 540)
                         .blur(radius: 80)
                         .offset(x: -200, y: -120)
 
                     Circle()
-                        .fill(Color(hex: "D5B38D").opacity(0.16))
+                        .fill(AppTheme.accent2.opacity(AppTheme.isDark ? 0.04 : 0.16))
                         .frame(width: 420, height: 420)
                         .blur(radius: 80)
                         .offset(x: 200, y: 300)
 
                     Circle()
-                        .fill(Color(hex: "8AAE9F").opacity(0.12))
+                        .fill(AppTheme.success.opacity(AppTheme.isDark ? 0.03 : 0.12))
                         .frame(width: 320, height: 320)
                         .blur(radius: 70)
                         .offset(x: 280, y: -180)
@@ -199,7 +197,9 @@ struct LoginView: View {
             .background(
                 RoundedRectangle(cornerRadius: 36)
                     .fill(LinearGradient(
-                        colors: [AppTheme.card, Color(hex: "F3E2CD")],
+                        colors: AppTheme.isDark
+                            ? [AppTheme.card, AppTheme.surfaceElevated]
+                            : [AppTheme.card, Color(hex: "F3E2CD")],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing))
             )
@@ -228,10 +228,7 @@ struct LoginView: View {
     private func loginPanel(geo: GeometryProxy, compactHeight: Bool, wideLayout: Bool) -> some View {
         ZStack {
             // Panel background
-            LinearGradient(
-                colors: [AppTheme.surface, Color(hex: "F6EBDD")],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing)
+            AppTheme.sidebarGradient
                 .overlay(alignment: wideLayout ? .leading : .top) {
                     Rectangle()
                         .fill(AppTheme.border)

@@ -56,12 +56,7 @@ struct ReportsView: View {
                 }
             }
         }
-        .background(
-            LinearGradient(
-                colors: [AppTheme.bg, Color(hex: "F7EDE2")],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing)
-        )
+        .background(AppTheme.bgGradient)
         .task { await reloadIfAuthorized() }
         .onChange(of: selectedRange) { _ in Task { await reloadIfAuthorized() } }
         .sheet(isPresented: $showManagerApproval) {
@@ -215,21 +210,21 @@ struct ReportsView: View {
                 title: isArabic ? "إيرادات اليوم" : "Revenue Today",
                 value: (dashboard?.revenueToday ?? 0).sarFormatted,
                 icon: "sun.max.fill",
-                color: Color(hex: "F59E0B"),
+                color: AppTheme.warning,
                 trend: nil)
 
             KPICard(
                 title: isArabic ? "طلبات اليوم" : "Orders Today",
                 value: "\(dashboard?.ordersToday ?? 0)",
                 icon: "bag.fill",
-                color: Color(hex: "3B82F6"),
+                color: AppTheme.info,
                 trend: nil)
 
             KPICard(
                 title: isArabic ? "متوسط وقت الطلب" : "Avg Order Time",
                 value: String(format: "%.1f %@", dashboard?.avgOrderTimeMin ?? 0, isArabic ? "دقيقة" : "min"),
                 icon: "clock.fill",
-                color: Color(hex: "8B5CF6"),
+                color: AppTheme.accent,
                 trend: nil)
 
             KPICard(

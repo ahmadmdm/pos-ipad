@@ -44,19 +44,16 @@ struct MainView: View {
         }
         .background {
             ZStack {
-                LinearGradient(
-                    colors: [AppTheme.bg, Color(hex: "FBF5EC"), Color(hex: "EFDCC7")],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing)
+                AppTheme.bgGradient
 
                 Circle()
-                    .fill(AppTheme.accent.opacity(0.08))
+                    .fill(AppTheme.accent.opacity(AppTheme.isDark ? 0.04 : 0.08))
                     .frame(width: 420, height: 420)
                     .blur(radius: 70)
                     .offset(x: -340, y: -220)
 
                 Circle()
-                    .fill(AppTheme.info.opacity(0.06))
+                    .fill(AppTheme.info.opacity(AppTheme.isDark ? 0.03 : 0.06))
                     .frame(width: 360, height: 360)
                     .blur(radius: 80)
                     .offset(x: 360, y: 260)
@@ -186,7 +183,7 @@ struct MainView: View {
             .padding(.trailing, 16)
         }
         .frame(height: 52)
-        .background(AppTheme.surface.opacity(0.98))
+        .background(AppTheme.isDark ? AppTheme.surface.opacity(0.95) : AppTheme.surface.opacity(0.98))
         .overlay(alignment: .bottom) {
             Rectangle().fill(AppTheme.border).frame(height: 1)
         }
@@ -515,12 +512,7 @@ struct MainView: View {
             .padding(.bottom, 24)
         }
         .frame(width: 96)
-        .background(
-            LinearGradient(
-                colors: [AppTheme.surface, Color(hex: "F3E6D7")],
-                startPoint: .top,
-                endPoint: .bottom)
-        )
+        .background(AppTheme.sidebarGradient)
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(AppTheme.border)
@@ -697,7 +689,11 @@ struct SidebarItem: View {
                 RoundedRectangle(cornerRadius: AppTheme.r20)
                     .strokeBorder(isSelected ? AppTheme.border : Color.clear, lineWidth: 1)
             )
-            .shadow(color: isSelected ? AppTheme.shadow : .clear, radius: 16, y: 6)
+            .shadow(color: isSelected
+                    ? (AppTheme.isDark ? AppTheme.glow : AppTheme.shadow)
+                    : .clear,
+                    radius: isSelected ? (AppTheme.isDark ? 20 : 16) : 0,
+                    y: isSelected ? (AppTheme.isDark ? 0 : 6) : 0)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

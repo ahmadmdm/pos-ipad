@@ -678,7 +678,35 @@ struct OrderDetailView: View {
     }
 
     private func buildReceiptDataFromOrder(_ order: Order) -> ReceiptData {
-        ReceiptData(
+        // 1) Try to find saved ZATCA QR from LocalInvoiceStore (most reliable)
+        let savedQR: String? = LocalInvoiceStore.shared.invoices
+            .first(where: { inv in inv.orderLocalId == order.id || inv.orderNumber == order.orderNumber })
+            .flatMap { $0.qrCodeBase64.isEmpty ? nil : $0.qrCodeBase64 }
+
+        // 2) If not saved, generate on the fly
+        let zatcaQR: String?
+        if let qr = savedQR {
+            zatcaQR = qr
+        } else {
+            let sellerName = APIService.shared.tenantNameAr
+                ?? UserDefaults.standard.string(forKey: "seller_name_ar")
+                ?? APIService.shared.tenantName ?? "AMPOS"
+            let vatNumber = UserDefaults.standard.string(forKey: "vat_number") ?? ""
+            let timestamp = order.paidAt ?? order.createdAt ?? ISO8601DateFormatter().string(from: Date())
+            if !vatNumber.isEmpty {
+                zatcaQR = ZATCALocalSigner.generateQRBase64(
+                    sellerName: sellerName,
+                    vatNumber: vatNumber,
+                    timestamp: timestamp,
+                    totalWithVAT: order.totalSafe,
+                    vatAmount: order.vatAmount ?? 0
+                )
+            } else {
+                zatcaQR = nil
+            }
+        }
+
+        return ReceiptData(
             storeName: APIService.shared.tenantName ?? "AMPOS",
             storeNameAr: APIService.shared.tenantNameAr,
             vatNumber: UserDefaults.standard.string(forKey: "vat_number"),
@@ -702,7 +730,7 @@ struct OrderDetailView: View {
             paymentMethod: order.paymentMethod?.capitalized ?? "N/A",
             amountPaid: order.totalSafe,
             change: 0,
-            qrData: nil,
+            qrData: zatcaQR,
             footer: UserDefaults.standard.string(forKey: "receipt_footer")
         )
     }

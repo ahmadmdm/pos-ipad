@@ -219,9 +219,38 @@ final class ReceiptPrinter {
         return cmd
     }
 
-    // MARK: - Network Send (TCP)
+    // MARK: - Network Send (TCP) — with retry & descriptive errors
 
-    private func sendToNetwork(data: Data, ip: String, port: UInt16) async -> Bool {
+    enum PrintError: LocalizedError {
+        case connectionFailed(String)
+        case sendFailed(String)
+        case timeout
+        case cancelled
+
+        var errorDescription: String? {
+            switch self {
+            case .connectionFailed(let detail): return "Printer connection failed: \(detail)"
+            case .sendFailed(let detail):       return "Failed to send data: \(detail)"
+            case .timeout:                       return "Printer connection timed out"
+            case .cancelled:                     return "Print job was cancelled"
+            }
+        }
+    }
+
+    /// Send data to printer with automatic retry (up to `maxRetries` attempts, exponential backoff).
+    private func sendToNetwork(data: Data, ip: String, port: UInt16, maxRetries: Int = 2, timeoutSeconds: Double = 10) async -> Bool {
+        for attempt in 0...maxRetries {
+            let result = await sendOnce(data: data, ip: ip, port: port, timeout: timeoutSeconds)
+            if result { return true }
+            if attempt < maxRetries {
+                // Exponential backoff: 0.5s, 1.0s
+                try? await Task.sleep(nanoseconds: UInt64(500_000_000 * (attempt + 1)))
+            }
+        }
+        return false
+    }
+
+    private func sendOnce(data: Data, ip: String, port: UInt16, timeout: Double) async -> Bool {
         await withCheckedContinuation { continuation in
             var resumed = false
             let host = NWEndpoint.Host(ip)
@@ -256,8 +285,17 @@ final class ReceiptPrinter {
 
             connection.start(queue: .global(qos: .userInitiated))
 
-            DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: timeoutItem)
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
         }
+    }
+
+    // MARK: - Cash Drawer Kick
+
+    /// Open the cash drawer via ESC/POS pulse command.
+    func openCashDrawer(ip: String, port: UInt16) async -> Bool {
+        // ESC p m t1 t2 — Pulse pin 2 for 100ms on / 100ms off
+        let cmd: [UInt8] = [0x1B, 0x70, 0x00, 0x19, 0x19]
+        return await sendToNetwork(data: Data(cmd), ip: ip, port: port, maxRetries: 1, timeoutSeconds: 5)
     }
 
     // MARK: - Helpers

@@ -765,6 +765,11 @@ struct PaymentView: View {
             // Auto-print receipt
             Task { await autoPrintReceipt(order: placedOrder!) }
 
+            // Auto-open cash drawer for cash payments
+            if selectedMethod == .cash || (isSplitMode && splitEntries.contains(where: { $0.method == .cash })) {
+                Task { await autoOpenCashDrawer() }
+            }
+
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { dismiss() }
         }
     }
@@ -822,6 +827,15 @@ struct PaymentView: View {
         // Fallback: AirPrint with receipt-sized PDF
         let paperSize = UserDefaults.standard.string(forKey: "paper_size") ?? "80mm"
         ReceiptPrinter.shared.printViaAirPrint(receipt: receipt, paperSize: paperSize)
+    }
+
+    private func autoOpenCashDrawer() async {
+        if let ip = UserDefaults.standard.string(forKey: "receipt_printer_ip"),
+           !ip.isEmpty,
+           let portStr = UserDefaults.standard.string(forKey: "receipt_printer_port"),
+           let port = UInt16(portStr) {
+            _ = await ReceiptPrinter.shared.openCashDrawer(ip: ip, port: port)
+        }
     }
 
     private func buildReceiptData(order: Order) -> ReceiptData {
