@@ -5,6 +5,7 @@
 
 import Foundation
 import CryptoKit
+import Combine
 
 /// ZATCA Tag-Length-Value encoder for QR code generation (Phase 2 simplified)
 enum ZATCALocalSigner {
@@ -143,15 +144,14 @@ struct LocalInvoice: Codable, Identifiable {
 }
 
 // MARK: - Local Invoice Store
-@Observable
 @MainActor
-final class LocalInvoiceStore {
+final class LocalInvoiceStore: ObservableObject {
 
     static let shared = LocalInvoiceStore()
     private let storageKey = "local_invoices"
     private let lastHashKey = "zatca_last_local_hash"
 
-    var invoices: [LocalInvoice] = []
+    @Published var invoices: [LocalInvoice] = []
 
     private init() { load() }
 

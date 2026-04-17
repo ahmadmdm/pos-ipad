@@ -1,10 +1,9 @@
 // OrdersView.swift — Orders list and detail view
 import SwiftUI
 import QuickLook
-import TipKit
 
 struct OrdersView: View {
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var appState: AppState
     private let l10n = L10n.shared
     @State private var orders: [Order] = []
     @State private var isLoading = false
@@ -219,7 +218,7 @@ struct OrdersView: View {
                         } label: {
                             Label("Copy Order #", systemImage: "doc.on.doc")
                         }
-                        .popoverTip(OrderContextMenuTip())
+                        .compatOrderContextMenuTip()
                     }
                 }
             }
@@ -388,7 +387,7 @@ struct OrderDetailView: View {
     let order: Order
     let onStatusChange: (Order) -> Void
 
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var appState: AppState
     @State private var isUpdating = false
     @State private var showPaySheet = false
     @State private var isDownloadingPDF = false
@@ -396,6 +395,8 @@ struct OrderDetailView: View {
     @State private var showPDFPreview = false
     @State private var showManagerApproval = false
     @State private var pendingVoidItem: OrderItem?
+    @State private var showShareSheet = false
+    @State private var shareItems: [Any] = []
     private let api = APIService.shared
     private let l10n = L10n.shared
 
@@ -439,13 +440,9 @@ struct OrderDetailView: View {
                                     .cornerRadius(8)
                                 }
 
-                                ShareLink(
-                                    item: PDFFile(data: ReceiptPrinter.shared.generateReceiptPDF(
-                                        receipt: buildReceiptDataFromOrder(order),
-                                        paperSize: UserDefaults.standard.string(forKey: "paper_size") ?? "80mm")),
-                                    preview: SharePreview("Receipt-\(order.displayNumber ?? 0).pdf",
-                                                          image: Image(systemName: "doc.text.fill"))
-                                ) {
+                                Button {
+                                    shareReceiptPDF()
+                                } label: {
                                     HStack(spacing: 4) {
                                         Image(systemName: "square.and.arrow.up")
                                         Text(l10n.downloadInvoice)
@@ -457,6 +454,7 @@ struct OrderDetailView: View {
                                     .background(AppTheme.accent.opacity(0.1))
                                     .cornerRadius(8)
                                 }
+                                .buttonStyle(.plain)
 
                                 // A4 Invoice PDF
                                 Button {
@@ -564,6 +562,9 @@ struct OrderDetailView: View {
             if let data = detailPdfData {
                 PDFPreviewSheet(data: data)
             }
+        }
+        .sheet(isPresented: $showShareSheet) {
+            ShareSheet(items: shareItems)
         }
         .sheet(isPresented: $showManagerApproval) {
             ManagerApprovalSheet(
@@ -723,6 +724,20 @@ struct OrderDetailView: View {
             ReceiptPrinter.shared.printViaAirPrint(receipt: receipt, paperSize: paperSize)
         }
     }
+
+    private func shareReceiptPDF() {
+        let data = ReceiptPrinter.shared.generateReceiptPDF(
+            receipt: buildReceiptDataFromOrder(order),
+            paperSize: UserDefaults.standard.string(forKey: "paper_size") ?? "80mm"
+        )
+        let filename = "Receipt-\(order.displayNumber ?? 0).pdf"
+        if let url = makeTemporaryPDFURL(filename: filename, data: data) {
+            shareItems = [url]
+        } else {
+            shareItems = [data]
+        }
+        showShareSheet = true
+    }
 }
 
 // MARK: - Supporting Views
@@ -776,9 +791,11 @@ import PDFKit
 struct PDFPreviewSheet: View {
     let data: Data
     @Environment(\.dismiss) private var dismiss
+    @State private var showShareSheet = false
+    @State private var shareItems: [Any] = []
 
     var body: some View {
-        NavigationStack {
+        CompatNavigationContainer {
             PDFViewerController(data: data)
                 .ignoresSafeArea(edges: .bottom)
                 .navigationTitle("Invoice")
@@ -788,15 +805,26 @@ struct PDFPreviewSheet: View {
                         Button("Close") { dismiss() }
                     }
                     ToolbarItem(placement: .primaryAction) {
-                        ShareLink(
-                            item: PDFFile(data: data),
-                            preview: SharePreview("Invoice.pdf", image: Image(systemName: "doc.text.fill"))
-                        ) {
+                        Button {
+                            sharePreviewPDF()
+                        } label: {
                             Image(systemName: "square.and.arrow.up")
                         }
                     }
                 }
         }
+        .sheet(isPresented: $showShareSheet) {
+            ShareSheet(items: shareItems)
+        }
+    }
+
+    private func sharePreviewPDF() {
+        if let url = makeTemporaryPDFURL(filename: "Invoice.pdf", data: data) {
+            shareItems = [url]
+        } else {
+            shareItems = [data]
+        }
+        showShareSheet = true
     }
 }
 
@@ -830,18 +858,4 @@ struct PDFViewerController: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ vc: UIViewController, context: Context) {}
-}
-
-// MARK: - PDF Transferable for ShareLink
-// ShareLink requires a Transferable item. This wraps PDF Data and exports
-// it as a named file — no UIActivityViewController or LaunchServices lookup needed.
-import UniformTypeIdentifiers
-
-struct PDFFile: Transferable {
-    let data: Data
-
-    static var transferRepresentation: some TransferRepresentation {
-        DataRepresentation(contentType: .pdf) { $0.data }
-            importing: { PDFFile(data: $0) }
-    }
 }

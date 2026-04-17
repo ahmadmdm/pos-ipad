@@ -2,8 +2,9 @@
 import SwiftUI
 import Charts
 
+@available(iOS 16.0, *)
 struct ReportsView: View {
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var appState: AppState
     @State private var dashboard: DashboardSummary?
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -62,7 +63,7 @@ struct ReportsView: View {
                 endPoint: .bottomTrailing)
         )
         .task { await reloadIfAuthorized() }
-        .onChange(of: selectedRange) { Task { await reloadIfAuthorized() } }
+        .onChange(of: selectedRange) { _ in Task { await reloadIfAuthorized() } }
         .sheet(isPresented: $showManagerApproval) {
             ManagerApprovalSheet(
                 actionTitle: L10n.shared.managerApproval,
@@ -657,22 +658,15 @@ struct ReportsView: View {
         errorMessage = nil
         paymentsSummary = []
         zatcaReport = nil
-        do {
-            async let dashRequest = api.fetchDashboard(range: selectedRange, authToken: reportAccessToken)
-            async let paymentsRequest = try? api.fetchPaymentsSummary(range: selectedRange, authToken: reportAccessToken)
-            async let zatcaRequest = try? api.fetchZATCAReport(range: selectedRange, authToken: reportAccessToken)
 
-            let dash = try await dashRequest
-            dashboard = dash
-            paymentsSummary = await paymentsRequest ?? []
-            zatcaReport = await zatcaRequest
-            do {
-                topProducts = try await api.fetchTopProducts(limit: 10, range: selectedRange, authToken: reportAccessToken)
-            } catch {
-                topProducts = []
-            }
-        } catch let error as NSError {
-            if error.code == 403 {
+        // Fetch dashboard first — if it fails the remaining requests are skipped,
+        // avoiding the async-let implicit-cancellation deallocation crash.
+        let dash: DashboardSummary
+        do {
+            dash = try await api.fetchDashboard(range: selectedRange, authToken: reportAccessToken)
+        } catch {
+            let nsError = error as NSError
+            if nsError.code == 403 {
                 if !hasNativeReportAccess {
                     managerOverrideToken = nil
                     managerApproverName = nil
@@ -683,7 +677,21 @@ struct ReportsView: View {
             } else {
                 errorMessage = error.localizedDescription
             }
+            isLoading = false
+            return
         }
+
+        dashboard = dash
+
+        // Fetch remaining data concurrently — all tasks are always awaited.
+        async let paymentsTask = try? api.fetchPaymentsSummary(range: selectedRange, authToken: reportAccessToken)
+        async let zatcaTask = try? api.fetchZATCAReport(range: selectedRange, authToken: reportAccessToken)
+        async let productsTask = try? api.fetchTopProducts(limit: 10, range: selectedRange, authToken: reportAccessToken)
+
+        paymentsSummary = await paymentsTask ?? []
+        zatcaReport = await zatcaTask
+        topProducts = await productsTask ?? []
+
         isLoading = false
     }
 
@@ -871,6 +879,24 @@ struct ReportsView: View {
         .padding(12)
         .background(color.opacity(0.1))
         .cornerRadius(AppTheme.r12)
+    }
+}
+
+struct ReportsUnavailableView: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "chart.bar.xaxis")
+                .font(.system(size: 44))
+                .foregroundColor(AppTheme.textMuted)
+            Text("Reports require iOS 16 or newer")
+                .font(AppTheme.headline())
+                .foregroundColor(AppTheme.textPrimary)
+            Text("Basic POS screens remain available on iOS 15.")
+                .font(AppTheme.body(14))
+                .foregroundColor(AppTheme.textMuted)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppTheme.bg)
     }
 }
 

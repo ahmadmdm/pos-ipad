@@ -7,8 +7,8 @@ private enum DiscountApprovalAction {
 }
 
 struct POSView: View {
-    @Environment(POSViewModel.self) var vm
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var vm: POSViewModel
+    @EnvironmentObject var appState: AppState
     private let l10n = L10n.shared
     @State private var showOrderTypeSheet = false
     @State private var showTablePicker = false
@@ -21,8 +21,27 @@ struct POSView: View {
     @State private var pendingDiscountAction: DiscountApprovalAction?
     @Namespace private var animation
 
+    private var showPaymentSheetBinding: Binding<Bool> {
+        Binding(get: { vm.showPaymentSheet }, set: { vm.showPaymentSheet = $0 })
+    }
+
+    private var showBarcodeScannerBinding: Binding<Bool> {
+        Binding(get: { vm.showBarcodeScanner }, set: { vm.showBarcodeScanner = $0 })
+    }
+
+    private var showModifierSheetBinding: Binding<Bool> {
+        Binding(get: { vm.showModifierSheet }, set: { vm.showModifierSheet = $0 })
+    }
+
+    private var searchTextBinding: Binding<String> {
+        Binding(get: { vm.searchText }, set: { vm.searchText = $0 })
+    }
+
+    private var orderNotesBinding: Binding<String> {
+        Binding(get: { vm.orderNotes }, set: { vm.orderNotes = $0 })
+    }
+
     var body: some View {
-        @Bindable var vm = vm
         HStack(spacing: 0) {
             // Left: Products
             productPanel
@@ -36,7 +55,7 @@ struct POSView: View {
                 showDiscount: { showDiscountSheet = true },
                 showNote: { showNoteSheet = true }
             )
-            .environment(vm)
+            .environmentObject(vm)
             .frame(width: 360)
             .background(AppTheme.surface)
             .overlay(alignment: .leading) {
@@ -45,10 +64,10 @@ struct POSView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(AppTheme.bg)
-        .sheet(isPresented: $vm.showPaymentSheet) {
+        .sheet(isPresented: showPaymentSheetBinding) {
             PaymentView()
-                .environment(vm)
-                .environment(appState)
+            .environmentObject(vm)
+            .environmentObject(appState)
         }
         .sheet(isPresented: $showOrderTypeSheet) { orderTypeSheet }
         .sheet(isPresented: $showTablePicker) { tablePicker }
@@ -65,11 +84,11 @@ struct POSView: View {
                 }
             }
         }
-        .sheet(isPresented: $vm.showBarcodeScanner) {
+        .sheet(isPresented: showBarcodeScannerBinding) {
             BarcodeScannerSheet()
-                .environment(vm)
+                .environmentObject(vm)
         }
-        .sheet(isPresented: $vm.showModifierSheet) {
+        .sheet(isPresented: showModifierSheetBinding) {
             if let product = vm.modifierProduct {
                 ModifierSelectionView(product: product) { modifiers in
                     vm.addToCart(product: product, modifiers: modifiers)
@@ -120,7 +139,6 @@ struct POSView: View {
 
     // MARK: - Top Bar
     private var topBar: some View {
-        @Bindable var vm = vm
         return VStack(spacing: 14) {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -181,7 +199,7 @@ struct POSView: View {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(AppTheme.textMuted)
                         .font(.system(size: 15, weight: .medium))
-                    TextField(l10n.searchProducts, text: $vm.searchText)
+                    TextField(l10n.searchProducts, text: searchTextBinding)
                         .font(AppTheme.body())
                         .foregroundColor(AppTheme.textPrimary)
                     if !vm.searchText.isEmpty {
@@ -278,7 +296,7 @@ struct POSView: View {
                     ProductCard(product: product) {
                         handleProductTap(product)
                     }
-                    .draggable(product.id)
+                    .compatDraggable(product.id)
                     .contextMenu {
                         Button {
                             handleProductTap(product)
@@ -520,13 +538,12 @@ struct POSView: View {
 
     // MARK: - Note Sheet
     private var noteSheet: some View {
-        @Bindable var vm = vm
         return SheetContainer(title: l10n.orderNotes) {
             VStack(spacing: 16) {
-                TextEditor(text: $vm.orderNotes)
+                TextEditor(text: orderNotesBinding)
                     .font(AppTheme.body())
                     .foregroundColor(AppTheme.textPrimary)
-                    .scrollContentBackground(.hidden)
+                    .compatHiddenScrollContentBackground()
                     .background(AppTheme.card)
                     .frame(height: 120)
                     .cornerRadius(AppTheme.r12)
@@ -747,15 +764,14 @@ struct SheetContainer<Content: View>: View {
     @Environment(\.dismiss) var dismiss
 
     var body: some View {
-        NavigationStack {
+        CompatNavigationContainer {
             ZStack {
                 AppTheme.bg.ignoresSafeArea()
                 ScrollView { content() }
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(AppTheme.surface, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
+            .compatSheetNavigationChrome()
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") { dismiss() }

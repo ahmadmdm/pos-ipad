@@ -2,7 +2,7 @@
 import SwiftUI
 
 struct LoginView: View {
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var appState: AppState
     private let l10n = L10n.shared
     private let api = APIService.shared
     @State private var email = ""
@@ -114,11 +114,11 @@ struct LoginView: View {
                 Task { await loadPINUsers() }
             }
         }
-        .onChange(of: loginMode) { _, newMode in
+        .onChange(of: loginMode) { newMode in
             guard newMode == .pin, isTenantReady else { return }
             Task { await loadPINUsers() }
         }
-        .onChange(of: tenantCode) { _, newValue in
+        .onChange(of: tenantCode) { newValue in
             let normalized = newValue.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
             if normalized != (api.tenantCode ?? "").uppercased() {
                 resolvedTenant = nil
@@ -795,7 +795,7 @@ struct ServerConfigSheet: View {
     @State private var saved = false
 
     var body: some View {
-        NavigationStack {
+        CompatNavigationContainer {
             VStack(spacing: 24) {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Server URL", systemImage: "server.rack")
@@ -848,11 +848,11 @@ struct ServerConfigSheet: View {
                         saved = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { dismiss() }
                     }
-                    .fontWeight(.semibold)
+                    .font(.system(size: 17, weight: .semibold))
                     .disabled(urlDraft.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }
-        .presentationDetents([.medium])
+        .compatMediumDetent()
     }
 }

@@ -1,11 +1,10 @@
 // CartView.swift — Cart panel and PaymentView sheet
 import SwiftUI
-import TipKit
 
 // MARK: - Cart View
 struct CartView: View {
-    @Environment(POSViewModel.self) var vm
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var vm: POSViewModel
+    @EnvironmentObject var appState: AppState
     private let offlineManager = OfflineManager.shared
     private let l10n = L10n.shared
 
@@ -44,7 +43,7 @@ struct CartView: View {
                 vm.replaceModifiers(for: cartItem, with: newModifiers)
                 editingModifierItem = nil
             }
-            .environment(vm)
+            .environmentObject(vm)
         }
     }
 
@@ -134,13 +133,13 @@ struct CartView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .dropDestination(for: String.self) { ids, _ in
+        .compatStringDropDestination { ids, _ in
             guard let id = ids.first,
                   let product = vm.products.first(where: { $0.id == id }) else { return false }
             vm.addToCart(product: product)
             return true
         }
-        .popoverTip(DragToCartTip())
+        .compatDragToCartTip()
     }
 
     // MARK: - Items List
@@ -163,7 +162,7 @@ struct CartView: View {
                 }
             }
         }
-        .dropDestination(for: String.self) { ids, _ in
+        .compatStringDropDestination { ids, _ in
             guard let id = ids.first,
                   let product = vm.products.first(where: { $0.id == id }) else { return false }
             vm.addToCart(product: product)

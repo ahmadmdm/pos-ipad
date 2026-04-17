@@ -4,7 +4,7 @@ import AVFoundation
 
 // MARK: - Scanner Sheet (combines camera + manual input)
 struct BarcodeScannerSheet: View {
-    @Environment(POSViewModel.self) var vm
+    @EnvironmentObject var vm: POSViewModel
     @Environment(\.dismiss) var dismiss
     @State private var manualInput = ""
     @State private var scannedCode: String?

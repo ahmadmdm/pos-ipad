@@ -69,8 +69,8 @@ final class ExternalDisplayManager {
         let window = UIWindow(windowScene: scene)
         let host = UIHostingController(
             rootView: CustomerDisplayView()
-                .environment(posVM)
-                .environment(AppState.shared)
+                .environmentObject(posVM)
+                .environmentObject(AppState.shared)
         )
         window.rootViewController = host
         window.frame = scene.screen.bounds
@@ -89,8 +89,8 @@ final class ExternalDisplayManager {
 
 // MARK: - Customer Display View
 struct CustomerDisplayView: View {
-    @Environment(POSViewModel.self) var vm
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var vm: POSViewModel
+    @EnvironmentObject var appState: AppState
 
     var body: some View {
         ZStack {

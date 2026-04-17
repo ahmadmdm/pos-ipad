@@ -208,9 +208,7 @@ struct pos80ManagerWidgetEntryView: View {
             }
             .padding(16)
         }
-        .containerBackground(for: .widget) {
-            Color.clear
-        }
+        .managerWidgetBackground()
     }
 
     private var emptyState: some View {
@@ -233,9 +231,7 @@ struct pos80ManagerWidgetEntryView: View {
             }
             .padding(16)
         }
-        .containerBackground(for: .widget) {
-            Color.clear
-        }
+        .managerWidgetBackground()
     }
 
     private func metricCard(_ title: String, value: String, tint: Color) -> some View {
@@ -338,5 +334,18 @@ struct pos80ManagerWidget: Widget {
 struct pos80ManagerWidgetBundle: WidgetBundle {
     var body: some Widget {
         pos80ManagerWidget()
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func managerWidgetBackground() -> some View {
+        if #available(iOS 17.0, *) {
+            self.containerBackground(for: .widget) {
+                Color.clear
+            }
+        } else {
+            self.background(Color.clear)
+        }
     }
 }

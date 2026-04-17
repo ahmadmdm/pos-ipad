@@ -21,15 +21,16 @@ extension Notification.Name {
 struct pos80App: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @Environment(\.scenePhase) private var scenePhase
-    @State private var appState = AppState.shared
+    @StateObject private var appState = AppState.shared
 
     init() {
         APIConfig.migrateStoredBaseURLIfNeeded()
-        // Configure TipKit — show tips once, stored in app data
-        try? Tips.configure([
-            .displayFrequency(.immediate),
-            .datastoreLocation(.applicationDefault)
-        ])
+        if #available(iOS 17.0, *) {
+            try? Tips.configure([
+                .displayFrequency(.immediate),
+                .datastoreLocation(.applicationDefault)
+            ])
+        }
         // Register background tasks early (before app finishes launching)
         BGRefreshManager.registerTasks()
         // Request notification permission (non-blocking)
@@ -40,7 +41,7 @@ struct pos80App: App {
         // MARK: Main window
         WindowGroup {
             ContentView()
-                .environment(appState)
+                .environmentObject(appState)
                 .preferredColorScheme(appState.isDark ? .dark : .light)
                 .task { await appState.refreshManagerSnapshot() }
                 .onContinueUserActivity(CSSearchableItemActionType) { activity in
@@ -55,7 +56,7 @@ struct pos80App: App {
                     appState.selectedTab = .orders
                     if appState.destination != .main { appState.destination = .main }
                 }
-                .onChange(of: scenePhase) { _, newPhase in
+                .onChange(of: scenePhase) { newPhase in
                     guard newPhase == .active else { return }
                     Task { await appState.refreshManagerSnapshot() }
                 }
@@ -64,7 +65,7 @@ struct pos80App: App {
         // MARK: Orders window (Stage Manager / External Display)
         WindowGroup("Orders", id: "orders") {
             OrdersView()
-                .environment(appState)
+                .environmentObject(appState)
                 .preferredColorScheme(appState.isDark ? .dark : .light)
         }
     }
@@ -152,6 +153,133 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     }
     @objc private func menuPrintReceipt() {
         NotificationCenter.default.post(name: .amposMenuPrintReceipt, object: nil)
+    }
+}
+
+struct CompatNavigationContainer<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        if #available(iOS 16.0, *) {
+            NavigationStack { content() }
+        } else {
+            NavigationView { content() }
+                .navigationViewStyle(StackNavigationViewStyle())
+        }
+    }
+}
+
+extension View {
+    @ViewBuilder
+    func compatMediumLargeDetents() -> some View {
+        if #available(iOS 16.0, *) {
+            self.presentationDetents([.medium, .large])
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func compatMediumDetent() -> some View {
+        if #available(iOS 16.0, *) {
+            self.presentationDetents([.medium])
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func compatFractionLargeDetents() -> some View {
+        if #available(iOS 16.0, *) {
+            self.presentationDetents([.fraction(0.7), .large])
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func compatVisiblePresentationDragIndicator() -> some View {
+        if #available(iOS 16.0, *) {
+            self.presentationDragIndicator(.visible)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func compatHiddenScrollContentBackground() -> some View {
+        if #available(iOS 16.0, *) {
+            self.scrollContentBackground(.hidden)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func compatSheetNavigationChrome() -> some View {
+        if #available(iOS 16.0, *) {
+            self
+                .toolbarBackground(AppTheme.surface, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func compatDraggable(_ value: String) -> some View {
+        if #available(iOS 16.0, *) {
+            self.draggable(value)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func compatStringDropDestination(action: @escaping ([String], CGPoint) -> Bool) -> some View {
+        if #available(iOS 16.0, *) {
+            self.dropDestination(for: String.self, action: action)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func compatKeyboardShortcutsTip() -> some View {
+        if #available(iOS 17.0, *) {
+            self.popoverTip(KeyboardShortcutsTip())
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func compatDragToCartTip() -> some View {
+        if #available(iOS 17.0, *) {
+            self.popoverTip(DragToCartTip())
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func compatOrderContextMenuTip() -> some View {
+        if #available(iOS 17.0, *) {
+            self.popoverTip(OrderContextMenuTip())
+        } else {
+            self
+        }
+    }
+}
+
+func makeTemporaryPDFURL(filename: String, data: Data) -> URL? {
+    let safeName = filename.replacingOccurrences(of: "/", with: "-")
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(safeName)
+    do {
+        try data.write(to: url, options: .atomic)
+        return url
+    } catch {
+        return nil
     }
 }
 

@@ -7,7 +7,7 @@ private enum ShiftApprovalAction {
 }
 
 struct ShiftView: View {
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var appState: AppState
     private let l10n = L10n.shared
     @State private var openingCash = ""
     @State private var closingCash = ""
@@ -160,7 +160,7 @@ struct ShiftView: View {
                 TextEditor(text: $cashDropNotes)
                     .font(AppTheme.body())
                     .foregroundColor(AppTheme.textPrimary)
-                    .scrollContentBackground(.hidden)
+                    .compatHiddenScrollContentBackground()
                     .background(AppTheme.card)
                     .frame(height: 72)
                     .cornerRadius(AppTheme.r12)
@@ -199,7 +199,7 @@ struct ShiftView: View {
                 TextEditor(text: $shiftNotes)
                     .font(AppTheme.body())
                     .foregroundColor(AppTheme.textPrimary)
-                    .scrollContentBackground(.hidden)
+                    .compatHiddenScrollContentBackground()
                     .background(AppTheme.card)
                     .frame(height: 80)
                     .cornerRadius(AppTheme.r12)

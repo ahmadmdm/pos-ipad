@@ -2,8 +2,8 @@
 import SwiftUI
 
 struct TablesView: View {
-    @Environment(POSViewModel.self) var posVM
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var posVM: POSViewModel
+    @EnvironmentObject var appState: AppState
     @State private var tables: [RestaurantTable] = []
     @State private var isLoading = false
     @State private var viewMode: ViewMode = .grid

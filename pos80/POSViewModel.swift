@@ -1,9 +1,9 @@
 // POSViewModel.swift — Business logic for the main POS screen
 import SwiftUI
+import Combine
 
-@Observable
 @MainActor
-final class POSViewModel {
+final class POSViewModel: ObservableObject {
 
     enum DiscountOrigin {
         case none
@@ -18,50 +18,50 @@ final class POSViewModel {
     private var invoiceStore: LocalInvoiceStore { LocalInvoiceStore.shared }
 
     // MARK: Menu Data
-    var categories: [ProductCategory] = []
-    var products: [Product] = []
-    var selectedCategory: ProductCategory?
-    var isMenuLoading = false
+    @Published var categories: [ProductCategory] = []
+    @Published var products: [Product] = []
+    @Published var selectedCategory: ProductCategory?
+    @Published var isMenuLoading = false
 
     // MARK: Cart
-    var cartItems: [CartItem] = []
-    var orderType: OrderType = .dineIn
-    var selectedTable: RestaurantTable?
-    var customerName: String = ""
-    var customerPhone: String = ""
-    var orderNotes: String = ""
-    var discountAmount: Double = 0
-    var discountOrigin: DiscountOrigin = .none
-    var couponCode: String = ""
-    var appliedCoupon: CouponValidationResult?
-    var loyaltyCustomer: LoyaltyCustomer?
-    var customerInsights: [CustomerInsight] = []
-    var isApplyingCoupon = false
-    var isLookingUpLoyaltyCustomer = false
-    var isLoadingCustomerInsights = false
+    @Published var cartItems: [CartItem] = []
+    @Published var orderType: OrderType = .dineIn
+    @Published var selectedTable: RestaurantTable?
+    @Published var customerName: String = ""
+    @Published var customerPhone: String = ""
+    @Published var orderNotes: String = ""
+    @Published var discountAmount: Double = 0
+    @Published var discountOrigin: DiscountOrigin = .none
+    @Published var couponCode: String = ""
+    @Published var appliedCoupon: CouponValidationResult?
+    @Published var loyaltyCustomer: LoyaltyCustomer?
+    @Published var customerInsights: [CustomerInsight] = []
+    @Published var isApplyingCoupon = false
+    @Published var isLookingUpLoyaltyCustomer = false
+    @Published var isLoadingCustomerInsights = false
 
     // MARK: Payment
-    var showPaymentSheet = false
-    var isProcessingPayment = false
-    var lastCompletedOrder: Order?
-    var lastCompletedOrderQR: String?
+    @Published var showPaymentSheet = false
+    @Published var isProcessingPayment = false
+    @Published var lastCompletedOrder: Order?
+    @Published var lastCompletedOrderQR: String?
 
     // MARK: Search & Barcode
-    var searchText = ""
-    var showBarcodeScanner = false
+    @Published var searchText = ""
+    @Published var showBarcodeScanner = false
 
     // MARK: Modifier selection
-    var showModifierSheet = false
-    var modifierProduct: Product?
+    @Published var showModifierSheet = false
+    @Published var modifierProduct: Product?
 
     // MARK: Completed Orders (held)
-    var heldOrders: [Order] = []
+    @Published var heldOrders: [Order] = []
 
     // MARK: Tables
-    var tables: [RestaurantTable] = []
+    @Published var tables: [RestaurantTable] = []
 
     // MARK: Errors
-    var error: String?
+    @Published var error: String?
 
     // MARK: Computed Values
     var filteredProducts: [Product] {

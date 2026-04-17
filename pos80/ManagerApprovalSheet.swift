@@ -10,7 +10,7 @@ struct ManagerApprovalSheet: View {
     let message: String
     let onApproved: (ManagerApprovalResult) -> Void
 
-    @Environment(AppState.self) private var appState
+    @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
     private let l10n = L10n.shared
 
@@ -26,7 +26,7 @@ struct ManagerApprovalSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        CompatNavigationContainer {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(actionTitle)

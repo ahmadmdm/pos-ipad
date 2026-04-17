@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var appState: AppState
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -26,7 +26,7 @@ struct ContentView: View {
                 ToastOverlay(toast: toast)
             }
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase) { phase in
             if phase == .background,
                appState.destination == .main,
                appState.isBiometricEnabled {
@@ -38,14 +38,14 @@ struct ContentView: View {
             set: { if !$0 { appState.isLocked = false } }
         )) {
             BiometricLockScreen()
-                .environment(appState)
+                .environmentObject(appState)
         }
     }
 }
 
 // MARK: - Biometric Lock Screen
 struct BiometricLockScreen: View {
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var appState: AppState
 
     var body: some View {
         ZStack {

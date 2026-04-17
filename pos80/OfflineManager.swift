@@ -1,11 +1,11 @@
 // OfflineManager.swift — Offline order queue & auto-sync when back online
 import Foundation
 import Network
+import Combine
 
 /// Manages offline order persistence and auto-sync when connectivity restores
-@Observable
 @MainActor
-final class OfflineManager {
+final class OfflineManager: ObservableObject {
 
     static let shared = OfflineManager()
     private let api = APIService.shared
@@ -13,11 +13,11 @@ final class OfflineManager {
     private let queue = DispatchQueue(label: "offline.monitor")
     private let storageKey = "offline_pending_orders"
 
-    var isOnline = true
-    var pendingCount = 0
-    var isSyncing = false
-    var lastSyncAt: Date?
-    var lastSyncError: String?
+    @Published var isOnline = true
+    @Published var pendingCount = 0
+    @Published var isSyncing = false
+    @Published var lastSyncAt: Date?
+    @Published var lastSyncError: String?
 
     private init() {
         loadPending()

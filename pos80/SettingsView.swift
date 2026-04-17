@@ -16,7 +16,7 @@ private enum AppInfo {
 }
 
 struct SettingsView: View {
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var appState: AppState
     private let l10n = L10n.shared
     @State private var settings: AppSettings?
     @State private var staff: [Staff] = []
@@ -356,7 +356,7 @@ struct SettingsToggleRow: View {
 struct BroadcastsSection: View {
     @Binding var broadcasts: [BroadcastItem]
     @Binding var unreadCount: Int
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var appState: AppState
     private let l10n = L10n.shared
     private let api = APIService.shared
     @State private var dismissingBroadcastId: String?
@@ -477,7 +477,7 @@ struct BroadcastsSection: View {
 // MARK: - General Settings
 struct GeneralSettingsSection: View {
     @Binding var settings: AppSettings?
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var appState: AppState
     private let l10n = L10n.shared
     @State private var apiURL: String = APIConfig.baseURL
 
@@ -666,7 +666,7 @@ struct GeneralSettingsSection: View {
 // MARK: - Receipt Settings
 struct ReceiptSettingsSection: View {
     @Binding var settings: AppSettings?
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var appState: AppState
     @State private var footer = ""
     @State private var paperSize = "80mm"
     @State private var fontSize = "normal"
@@ -781,7 +781,7 @@ struct ReceiptSettingsSection: View {
 // MARK: - Printer Settings
 struct PrinterSettingsSection: View {
     @Binding var settings: AppSettings?
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var appState: AppState
     @State private var receiptIP    = ""
     @State private var receiptPort  = "9100"
     @State private var kitchenIP    = ""
@@ -839,8 +839,8 @@ struct PrinterSettingsSection: View {
                     showDiscovery = false
                 }
             )
-            .presentationDetents([.fraction(0.7), .large])
-            .presentationDragIndicator(.visible)
+            .compatFractionLargeDetents()
+            .compatVisiblePresentationDragIndicator()
         }
 
         SettingsCard(title: "Receipt Printer", icon: "printer.fill", color: AppTheme.success) {
@@ -1097,7 +1097,7 @@ struct StaffRow: View {
 
 // MARK: - About Section
 struct AboutSection: View {
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var appState: AppState
     private let l10n = L10n.shared
 
     var body: some View {
@@ -1105,7 +1105,7 @@ struct AboutSection: View {
             SettingsRow(label: "Version", value: AppInfo.version)
             SettingsRow(label: "Build", value: AppInfo.build)
             SettingsRow(label: "Bundle ID", value: AppInfo.bundleIdentifier)
-            SettingsRow(label: "Platform", value: "iPadOS 17+")
+            SettingsRow(label: "Platform", value: "iPadOS 15+")
             SettingsRow(label: "API Version", value: "v1")
         }
 

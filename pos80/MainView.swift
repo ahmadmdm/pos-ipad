@@ -1,10 +1,9 @@
 // MainView.swift — App shell with sidebar navigation
 import SwiftUI
-import TipKit
 
 struct MainView: View {
-    @Environment(AppState.self) var appState
-    @State private var posVM = POSViewModel()
+    @EnvironmentObject var appState: AppState
+    @StateObject private var posVM = POSViewModel()
     private let offlineManager = OfflineManager.shared
     private let l10n = L10n.shared
     @State private var showOfflineQueue = false
@@ -27,11 +26,16 @@ struct MainView: View {
 
                 ZStack {
                     switch appState.selectedTab {
-                    case .pos:      POSView().environment(posVM)
+                    case .pos:      POSView().environmentObject(posVM)
                     case .orders:   OrdersView()
-                    case .tables:   TablesView().environment(posVM)
+                    case .tables:   TablesView().environmentObject(posVM)
                     case .shift:    ShiftView()
-                    case .reports:  ReportsView()
+                    case .reports:
+                        if #available(iOS 16.0, *) {
+                            ReportsView()
+                        } else {
+                            ReportsUnavailableView()
+                        }
                     case .settings: SettingsView()
                     }
                 }
@@ -103,7 +107,7 @@ struct MainView: View {
         }
         .sheet(isPresented: $showOfflineQueue) {
             OfflineQueueSheet()
-                .presentationDetents([.medium, .large])
+                .compatMediumLargeDetents()
         }
     }
 
@@ -469,7 +473,7 @@ struct MainView: View {
                             .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                         }
                     }
-                    .popoverTip(KeyboardShortcutsTip())
+                    .compatKeyboardShortcutsTip()
                 }
             }
 
@@ -532,7 +536,7 @@ struct OfflineQueueSheet: View {
     @State private var queueItems: [OfflineOrder] = []
 
     var body: some View {
-        NavigationStack {
+        CompatNavigationContainer {
             VStack(spacing: 16) {
                 HStack(spacing: 12) {
                     statusCard(

@@ -1,5 +1,6 @@
 // AppState.swift — Global state management for the POS app
 import SwiftUI
+import Combine
 import LocalAuthentication
 
 // MARK: - App Destination (navigation)
@@ -37,9 +38,8 @@ enum ManagerAlert: Hashable, Codable {
     case unreadBroadcasts(Int)
 }
 
-@Observable
 @MainActor
-final class AppState {
+final class AppState: ObservableObject {
 
     static let shared = AppState()
     private let api = APIService.shared
@@ -50,58 +50,58 @@ final class AppState {
     private let saleCompletionSoundEnabledKey = "sale_completion_sound_enabled"
 
     // MARK: Navigation
-    var destination: AppDestination = .login
-    var selectedTab: MainTab = .pos
+    @Published var destination: AppDestination = .login
+    @Published var selectedTab: MainTab = .pos
 
     // MARK: Auth
-    var currentUser: CurrentUser? {
+    @Published var currentUser: CurrentUser? {
         didSet {
             persistCurrentUser()
             exportManagerSnapshot()
         }
     }
-    var isLoading = false
-    var errorMessage: String?
-    var successMessage: String?
+    @Published var isLoading = false
+    @Published var errorMessage: String?
+    @Published var successMessage: String?
 
     // MARK: Current Shift
-    var currentShift: Shift?
-    var shiftLoaded = false
-    var unreadBroadcastCount = 0 {
+    @Published var currentShift: Shift?
+    @Published var shiftLoaded = false
+    @Published var unreadBroadcastCount = 0 {
         didSet { UserDefaults.standard.set(unreadBroadcastCount, forKey: cachedUnreadBroadcastCountKey) }
     }
-    var latestBroadcasts: [BroadcastItem] = [] {
+    @Published var latestBroadcasts: [BroadcastItem] = [] {
         didSet { persistBroadcastsCache() }
     }
-    var managerApprovalLog: [ManagerApprovalEntry] = []
-    var managerSnapshot = ManagerOperationalSnapshot.empty {
+    @Published var managerApprovalLog: [ManagerApprovalEntry] = []
+    @Published var managerSnapshot = ManagerOperationalSnapshot.empty {
         didSet { exportManagerSnapshot() }
     }
 
     // MARK: Appearance
-    var isDark: Bool = UserDefaults.standard.object(forKey: "pos_is_dark") as? Bool ?? true {
+    @Published var isDark: Bool = UserDefaults.standard.object(forKey: "pos_is_dark") as? Bool ?? true {
         didSet {
             UserDefaults.standard.set(isDark, forKey: "pos_is_dark")
             AppTheme.isDark = isDark
         }
     }
-    var isSaleCompletionSoundEnabled: Bool = UserDefaults.standard.object(forKey: "sale_completion_sound_enabled") as? Bool ?? true {
+    @Published var isSaleCompletionSoundEnabled: Bool = UserDefaults.standard.object(forKey: "sale_completion_sound_enabled") as? Bool ?? true {
         didSet {
             UserDefaults.standard.set(isSaleCompletionSoundEnabled, forKey: saleCompletionSoundEnabledKey)
         }
     }
 
     // MARK: Toast
-    var toast: ToastMessage?
+    @Published var toast: ToastMessage?
 
     // MARK: Spotlight deep-link
-    var spotlightOrderId: String?
+    @Published var spotlightOrderId: String?
 
     // MARK: Biometric Lock
-    var isBiometricEnabled: Bool = UserDefaults.standard.bool(forKey: "biometric_lock_enabled") {
+    @Published var isBiometricEnabled: Bool = UserDefaults.standard.bool(forKey: "biometric_lock_enabled") {
         didSet { UserDefaults.standard.set(isBiometricEnabled, forKey: "biometric_lock_enabled") }
     }
-    var isLocked: Bool = false
+    @Published var isLocked: Bool = false
 
     func unlockWithBiometric() async {
         let context = LAContext()

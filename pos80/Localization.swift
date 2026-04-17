@@ -1,15 +1,15 @@
 // Localization.swift — Centralized Arabic/English localization for Ampos POS
 import SwiftUI
+import Combine
 
 // MARK: - Localization Manager
-@Observable
 @MainActor
-final class L10n {
+final class L10n: ObservableObject {
 
     static let shared = L10n()
     private let key = "pos_language"
 
-    var language: Language {
+    @Published var language: Language {
         didSet {
             UserDefaults.standard.set(language.rawValue, forKey: key)
         }

@@ -3,8 +3,8 @@ import SwiftUI
 import AVFoundation
 
 struct PaymentView: View {
-    @Environment(POSViewModel.self) var vm
-    @Environment(AppState.self) var appState
+    @EnvironmentObject var vm: POSViewModel
+    @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) var dismiss
     private let offlineManager = OfflineManager.shared
     private let l10n = L10n.shared
@@ -23,6 +23,8 @@ struct PaymentView: View {
     @State private var splitMethodSelection: PaymentMethod = .cash
     @State private var splitAmountInput = ""
     @State private var synthesizer = AVSpeechSynthesizer()
+    @State private var showShareSheet = false
+    @State private var shareItems: [Any] = []
 
     private var cashChange: Double {
         guard selectedMethod == .cash, let tendered = Double(cashInput) else { return 0 }
@@ -63,6 +65,9 @@ struct PaymentView: View {
             if vm.customerInsights.isEmpty {
                 await vm.loadCustomerInsights()
             }
+        }
+        .sheet(isPresented: $showShareSheet) {
+            ShareSheet(items: shareItems)
         }
     }
 
@@ -655,14 +660,9 @@ struct PaymentView: View {
             VStack(spacing: 12) {
                 // Print Receipt button
                 if let order = placedOrder {
-                    // Share receipt-sized PDF
-                    ShareLink(
-                        item: PDFFile(data: ReceiptPrinter.shared.generateReceiptPDF(
-                            receipt: buildReceiptData(order: order),
-                            paperSize: UserDefaults.standard.string(forKey: "paper_size") ?? "80mm")),
-                        preview: SharePreview("Receipt-\(order.displayNumber ?? 0).pdf",
-                                              image: Image(systemName: "doc.text.fill"))
-                    ) {
+                    Button {
+                        shareReceipt(for: order)
+                    } label: {
                         HStack(spacing: 8) {
                             Image(systemName: "square.and.arrow.up")
                                 .font(.system(size: 16, weight: .semibold))
@@ -675,6 +675,7 @@ struct PaymentView: View {
                         .background(AppTheme.accent.opacity(0.12))
                         .cornerRadius(AppTheme.r12)
                     }
+                    .buttonStyle(.plain)
 
                     Button {
                         Task { await autoPrintReceipt(order: order) }
@@ -851,6 +852,20 @@ struct PaymentView: View {
             qrData: vm.lastCompletedOrderQR,
             footer: UserDefaults.standard.string(forKey: "receipt_footer")
         )
+    }
+
+    private func shareReceipt(for order: Order) {
+        let data = ReceiptPrinter.shared.generateReceiptPDF(
+            receipt: buildReceiptData(order: order),
+            paperSize: UserDefaults.standard.string(forKey: "paper_size") ?? "80mm"
+        )
+        let filename = "Receipt-\(order.displayNumber ?? 0).pdf"
+        if let url = makeTemporaryPDFURL(filename: filename, data: data) {
+            shareItems = [url]
+        } else {
+            shareItems = [data]
+        }
+        showShareSheet = true
     }
 }
 

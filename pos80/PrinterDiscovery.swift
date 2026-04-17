@@ -1,6 +1,7 @@
 // PrinterDiscovery.swift — Automatic network printer scanner (ESC/POS port 9100)
 import SwiftUI
 import Network
+import Combine
 
 // MARK: - Discovered Printer
 
@@ -12,13 +13,12 @@ struct DiscoveredPrinter: Identifiable, Equatable {
 
 // MARK: - Printer Discovery Engine
 
-@Observable
 @MainActor
-final class PrinterDiscovery {
+final class PrinterDiscovery: ObservableObject {
 
-    var isScanning    = false
-    var discovered:   [DiscoveredPrinter] = []
-    var scannedCount  = 0
+    @Published var isScanning    = false
+    @Published var discovered:   [DiscoveredPrinter] = []
+    @Published var scannedCount  = 0
     let totalCount    = 254
 
     var progress: Double {
@@ -147,7 +147,7 @@ struct PrinterDiscoverySheet: View {
     let onSelectKitchen: (String, UInt16) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var discovery = PrinterDiscovery()
+    @StateObject private var discovery = PrinterDiscovery()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -279,7 +279,13 @@ struct PrinterDiscoverySheet: View {
             Image(systemName: discovery.isScanning ? "wifi" : "printer.fill")
                 .font(.system(size: 56))
                 .foregroundColor(AppTheme.textMuted.opacity(0.35))
-                .symbolEffect(.pulse, isActive: discovery.isScanning)
+                .scaleEffect(discovery.isScanning ? 1.06 : 1)
+                .animation(
+                    discovery.isScanning
+                        ? .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
+                        : .default,
+                    value: discovery.isScanning
+                )
             Text(
                 discovery.isScanning        ? "Searching for printers on WiFi…" :
                 discovery.scannedCount > 0  ? "No printers found on port 9100.\nMake sure the printer is on and connected to the same network." :
