@@ -131,6 +131,11 @@ extension L10n {
     var offlineMode: String { t("Offline mode — order will sync when connected", "وضع عدم الاتصال — سيتم المزامنة عند الإتصال") }
     var note: String { t("Note", "ملاحظة") }
     var hold: String { t("Hold", "تعليق") }
+    var sendToKitchen: String { t("Send to Kitchen", "إرسال للمطبخ") }
+    var addExtras: String { t("Add extras", "إضافة مكوّنات") }
+    var sentToKitchen: String { t("sent to kitchen", "أُرسل إلى المطبخ") }
+    var kitchenRouteFailed: String { t("Kitchen routing failed", "فشل إرسال الطلب إلى المطبخ") }
+    var paymentSuccessfulOrder: String { t("Payment successful! Order", "تمّ الدفع بنجاح! طلب") }
     var remove: String { t("Remove", "حذف") }
     var noProductsAvailable: String { t("No products available", "لا توجد منتجات") }
 
@@ -329,6 +334,10 @@ extension L10n {
     // MARK: POS Extras
     func noResults(_ query: String) -> String { t("No results for \"\(query)\"", "لا نتائج لـ \"\(query)\"") }
     var discountAmountSAR: String { t("Discount amount (SAR)", "مبلغ الخصم (ريال)") }
+    var discountTypeAmount: String { t("Amount", "مبلغ") }
+    var discountTypePercent: String { t("Percent", "نسبة") }
+    var discountPercentPlaceholder: String { t("Discount percentage (0–100)", "نسبة الخصم (0–100)") }
+    var invalidPercentage: String { t("Enter a percentage between 0 and 100", "أدخل نسبة بين 0 و 100") }
     var noTablesConfigured: String { t("No tables configured", "لم يتم إعداد طاولات") }
     var cartSubtotalPrefix: String { t("Cart Subtotal:", "المجموع الفرعي للسلة:") }
     var processing: String { t("Processing...", "جاري المعالجة...") }

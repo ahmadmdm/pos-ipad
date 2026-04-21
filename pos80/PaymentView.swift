@@ -345,7 +345,10 @@ struct PaymentView: View {
                 HStack(spacing: 8) {
                     ForEach(quickAmounts, id: \.self) { amount in
                         Button {
-                            cashInput = String(format: "%.0f", amount)
+                            // "Exact" (amount == 0) fills the cart total; other chips fill rounded-up amounts.
+                            cashInput = amount == 0
+                                ? String(format: "%.2f", vm.cartTotal)
+                                : String(format: "%.0f", amount)
                         } label: {
                             Text(amount == 0 ? l10n.exact : "\(Int(amount))")
                                 .font(AppTheme.headline(14))

@@ -3,6 +3,7 @@ import SwiftUI
 
 private enum DiscountApprovalAction {
     case apply(Double)
+    case applyPercent(Double)
     case remove
 }
 
@@ -14,6 +15,7 @@ struct POSView: View {
     @State private var showTablePicker = false
     @State private var showDiscountSheet = false
     @State private var discountInput = ""
+    @State private var discountIsPercent = false
     @State private var noteInput = ""
     @State private var showNoteSheet = false
     @State private var showHeldOrders = false
@@ -494,11 +496,39 @@ struct POSView: View {
                     .font(AppTheme.headline())
                     .foregroundColor(AppTheme.textSecondary)
 
-                ThemeTextField(icon: "tag.fill", placeholder: l10n.discountAmountSAR, text: $discountInput, keyboardType: .decimalPad)
+                Picker("", selection: $discountIsPercent) {
+                    Text(l10n.discountTypeAmount).tag(false)
+                    Text(l10n.discountTypePercent).tag(true)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: discountIsPercent) { _ in discountInput = "" }
+
+                ThemeTextField(
+                    icon: discountIsPercent ? "percent" : "tag.fill",
+                    placeholder: discountIsPercent ? l10n.discountPercentPlaceholder : l10n.discountAmountSAR,
+                    text: $discountInput,
+                    keyboardType: .decimalPad)
+
+                if discountIsPercent,
+                   let pct = Double(discountInput),
+                   pct > 0, pct <= 100, vm.cartSubtotal > 0 {
+                    let preview = min(vm.cartSubtotal * pct / 100.0, vm.cartSubtotal)
+                    Text("= \(preview.sarFormatted)")
+                        .font(AppTheme.caption(13))
+                        .foregroundColor(AppTheme.textMuted)
+                }
 
                 Button {
-                    guard let amount = Double(discountInput) else { return }
-                    requestDiscountApproval(.apply(amount))
+                    guard let value = Double(discountInput) else { return }
+                    if discountIsPercent {
+                        guard value > 0, value <= 100 else {
+                            appState.showError(l10n.invalidPercentage)
+                            return
+                        }
+                        requestDiscountApproval(.applyPercent(value))
+                    } else {
+                        requestDiscountApproval(.apply(value))
+                    }
                 } label: {
                     Text(l10n.applyDiscount)
                 }
@@ -532,8 +562,11 @@ struct POSView: View {
         case .apply(let amount):
             vm.applyDiscount(amount)
             discountInput = ""
+        case .applyPercent(let percent):
+            vm.applyPercentDiscount(percent)
+            discountInput = ""
         case .remove:
-            vm.discountAmount = 0
+            vm.clearDiscountState()
         }
         pendingDiscountAction = nil
         showDiscountSheet = false
@@ -541,7 +574,7 @@ struct POSView: View {
 
     private func approvalTitle(for action: DiscountApprovalAction) -> String {
         switch action {
-        case .apply:
+        case .apply, .applyPercent:
             return l10n.applyDiscountApproval
         case .remove:
             return l10n.removeDiscountApproval

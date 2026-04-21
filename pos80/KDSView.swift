@@ -12,8 +12,10 @@ struct KDSView: View {
     @State private var selectedStationId: String?
     @State private var isLoading = false
     @State private var showStationSettings = false
+    @State private var loadError: String?
 
     private let refreshTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
+    private let kdsChangedNotification = Notification.Name("kdsOrdersDidChange")
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,8 +27,17 @@ struct KDSView: View {
             } else if orders.isEmpty {
                 Spacer()
                 VStack(spacing: 12) {
-                    Image(systemName: "tray").font(.system(size: 40)).foregroundColor(AppTheme.textMuted)
-                    Text(l10n.noKDSOrders).font(AppTheme.body(15)).foregroundColor(AppTheme.textMuted)
+                    Image(systemName: loadError == nil ? "tray" : "exclamationmark.triangle")
+                        .font(.system(size: 40))
+                        .foregroundColor(loadError == nil ? AppTheme.textMuted : AppTheme.warning)
+                    Text(loadError ?? l10n.noKDSOrders)
+                        .font(AppTheme.body(15))
+                        .foregroundColor(loadError == nil ? AppTheme.textMuted : AppTheme.warning)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                    Button { Task { await loadAll() } } label: {
+                        Text(l10n.retry).font(AppTheme.caption(13))
+                    }
                 }
                 Spacer()
             } else {
@@ -43,6 +54,9 @@ struct KDSView: View {
         .background(AppTheme.bgGradient.ignoresSafeArea())
         .task { await loadAll() }
         .onReceive(refreshTimer) { _ in Task { await loadOrders() } }
+        .onReceive(NotificationCenter.default.publisher(for: kdsChangedNotification)) { _ in
+            Task { await loadOrders() }
+        }
         .sheet(isPresented: $showStationSettings) { KitchenStationsSheet(stations: $stations) }
     }
 
@@ -160,18 +174,33 @@ struct KDSView: View {
 
     private func loadAll() async {
         isLoading = true
-        stations = (try? await api.fetchKitchenStations()) ?? []
+        loadError = nil
+        do {
+            stations = try await api.fetchKitchenStations()
+        } catch {
+            // Stations are optional; don't block KDS if endpoint missing
+            stations = []
+        }
         await loadOrders()
         isLoading = false
     }
 
     private func loadOrders() async {
-        orders = (try? await api.fetchKDSOrders(stationId: selectedStationId)) ?? []
+        do {
+            orders = try await api.fetchKDSOrders(stationId: selectedStationId)
+            loadError = nil
+        } catch {
+            loadError = error.localizedDescription
+        }
     }
 
     private func bumpOrder(_ order: Order) async {
         let nextStatus = order.status == "received" ? "preparing" : "ready"
-        try? await api.bumpKDSOrder(order.id, body: BumpOrder(status: nextStatus))
+        do {
+            try await api.bumpKDSOrder(order.id, body: BumpOrder(status: nextStatus))
+        } catch {
+            loadError = error.localizedDescription
+        }
         await loadOrders()
     }
 }

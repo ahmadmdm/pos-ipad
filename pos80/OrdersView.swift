@@ -519,6 +519,7 @@ struct OrderDetailView: View {
     @State private var pendingVoidItem: OrderItem?
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
+    @State private var showChargeSheet = false
     private let api = APIService.shared
     private let l10n = L10n.shared
 
@@ -688,6 +689,13 @@ struct OrderDetailView: View {
         .sheet(isPresented: $showShareSheet) {
             ShareSheet(items: shareItems)
         }
+        .sheet(isPresented: $showChargeSheet) {
+            ChargeOrderSheet(order: order) { paid in
+                onStatusChange(paid)
+                appState.showSuccess("\(l10n.paymentSuccessfulOrder) #\(paid.displayNumber ?? 0)")
+            }
+            .environmentObject(appState)
+        }
         .sheet(isPresented: $showManagerApproval) {
             ManagerApprovalSheet(
                 actionTitle: pendingVoidItem == nil ? l10n.cancelOrderApproval : l10n.voidItemApproval,
@@ -711,6 +719,12 @@ struct OrderDetailView: View {
     private var statusActions: some View {
         VStack(spacing: 12) {
             Text(l10n.actions).font(AppTheme.headline()).foregroundColor(AppTheme.textSecondary)
+
+            // Collect payment for any unpaid order (incl. those sent to kitchen)
+            StatusActionButton(label: "\(l10n.payment) — \(order.totalSafe.sarFormatted)",
+                               icon: "creditcard.fill", color: AppTheme.success) {
+                showChargeSheet = true
+            }
 
             if order.status == "received" || order.status == "draft" {
                 StatusActionButton(label: l10n.markPreparing, icon: "flame.fill", color: AppTheme.warning) {
@@ -1004,4 +1018,159 @@ struct PDFViewerController: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ vc: UIViewController, context: Context) {}
+}
+
+// MARK: - Charge Order Sheet
+/// Lets the cashier collect payment for an existing (unpaid) order — used after
+/// the order was sent to the kitchen with the "Send to Kitchen" action.
+struct ChargeOrderSheet: View {
+    let order: Order
+    let onPaid: (Order) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var appState: AppState
+    @State private var selectedMethod: PaymentMethod = .cash
+    @State private var cashInput: String = ""
+    @State private var isProcessing = false
+    @State private var errorText: String?
+    private let api = APIService.shared
+    private let l10n = L10n.shared
+
+    private var total: Double { order.totalSafe }
+    private var cashTendered: Double? { selectedMethod == .cash ? Double(cashInput) : nil }
+    private var change: Double {
+        guard let t = cashTendered else { return 0 }
+        return max(0, t - total)
+    }
+    private var isCashSufficient: Bool {
+        selectedMethod != .cash || (cashTendered ?? 0) >= total
+    }
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Total
+                    VStack(spacing: 4) {
+                        Text(l10n.totalAmount)
+                            .font(AppTheme.caption())
+                            .foregroundColor(AppTheme.textMuted)
+                        Text(total.sarFormatted)
+                            .font(AppTheme.display(40))
+                            .foregroundStyle(AppTheme.accentGrad)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(20)
+                    .background(AppTheme.card)
+                    .cornerRadius(AppTheme.r16)
+
+                    // Method picker
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(l10n.paymentMethod)
+                            .font(AppTheme.headline())
+                            .foregroundColor(AppTheme.textSecondary)
+                        Picker("", selection: $selectedMethod) {
+                            Text(l10n.cash).tag(PaymentMethod.cash)
+                            Text(l10n.card).tag(PaymentMethod.card)
+                            Text(l10n.mada).tag(PaymentMethod.mada)
+                            Text(l10n.applePay).tag(PaymentMethod.apple_pay)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
+                    // Cash input
+                    if selectedMethod == .cash {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(l10n.cashTendered)
+                                .font(AppTheme.headline())
+                                .foregroundColor(AppTheme.textSecondary)
+                            HStack {
+                                TextField(l10n.amountReceived, text: $cashInput)
+                                    .keyboardType(.decimalPad)
+                                    .padding(12)
+                                    .background(AppTheme.card)
+                                    .cornerRadius(AppTheme.r8)
+                                Button(l10n.exact) {
+                                    cashInput = String(format: "%.2f", total)
+                                }
+                                .padding(.horizontal, 14).padding(.vertical, 12)
+                                .background(AppTheme.accent.opacity(0.1))
+                                .foregroundColor(AppTheme.accent)
+                                .cornerRadius(AppTheme.r8)
+                            }
+                            if let t = cashTendered, t >= total {
+                                SummaryRow(label: l10n.change,
+                                           value: change.sarFormatted,
+                                           valueColor: AppTheme.success)
+                            } else if !cashInput.isEmpty {
+                                Text(l10n.insufficientAmount)
+                                    .font(AppTheme.caption())
+                                    .foregroundColor(AppTheme.danger)
+                            }
+                        }
+                    }
+
+                    if let err = errorText {
+                        Text(err)
+                            .font(AppTheme.caption())
+                            .foregroundColor(AppTheme.danger)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    // Pay button
+                    Button {
+                        Task { await charge() }
+                    } label: {
+                        HStack {
+                            if isProcessing { ProgressView().tint(.white) }
+                            Text(l10n.confirmPayment(methodLabel))
+                                .font(AppTheme.headline(16))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(isCashSufficient ? AppTheme.accentGradH : LinearGradient(colors: [AppTheme.textMuted], startPoint: .leading, endPoint: .trailing))
+                        .foregroundColor(.white)
+                        .cornerRadius(AppTheme.r16)
+                    }
+                    .disabled(isProcessing || !isCashSufficient)
+                }
+                .padding(20)
+            }
+            .background(AppTheme.bg)
+            .navigationTitle(l10n.payment)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(l10n.cancel) { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var methodLabel: String {
+        switch selectedMethod {
+        case .cash: return l10n.cash
+        case .card: return l10n.card
+        case .mada: return l10n.mada
+        case .apple_pay: return l10n.applePay
+        default: return l10n.payment
+        }
+    }
+
+    private func charge() async {
+        isProcessing = true
+        errorText = nil
+        do {
+            let payment = OrderPayment(
+                paymentMethod: selectedMethod.rawValue,
+                paymentReference: nil,
+                cashTendered: cashTendered)
+            let paid = try await api.payOrder(order.id, payment: payment)
+            onPaid(paid)
+            dismiss()
+        } catch {
+            errorText = error.localizedDescription
+        }
+        isProcessing = false
+    }
 }

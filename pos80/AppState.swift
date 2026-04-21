@@ -199,6 +199,9 @@ final class AppState: ObservableObject {
     }
 
     private func completeLogin(_ token: TokenResponse) {
+        // Clear any stale session-expired toast/error from a previous session
+        toast = nil
+        errorMessage = nil
         api.accessToken = token.accessToken
         api.refreshToken = token.refreshToken
         api.tenantSlug = token.tenantSlug

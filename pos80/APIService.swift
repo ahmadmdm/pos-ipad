@@ -1035,13 +1035,21 @@ final class APIService {
         try await requestVoid(path: "/kds/orders/\(orderId)/bump", method: .post, body: body)
     }
 
+    /// Notifies the backend that an order should appear on the Kitchen Display.
+    /// The backend currently auto-routes new orders to KDS, so this attempts a `bump`
+    /// to ensure the status is at least "received". Errors are non-fatal and rethrown
+    /// so callers can decide whether to surface them.
+    func sendOrderToKitchen(_ orderId: String) async throws {
+        try await bumpKDSOrder(orderId, body: BumpOrder(status: "received"))
+    }
+
     // MARK: - Kitchen Stations
     func fetchKitchenStations() async throws -> [KitchenStation] {
-        return try await request(path: "/kitchen-stations")
+        return try await request(path: "/kitchen-stations/")
     }
 
     func createKitchenStation(_ body: StationCreate) async throws -> KitchenStation {
-        return try await request(path: "/kitchen-stations", method: .post, body: body)
+        return try await request(path: "/kitchen-stations/", method: .post, body: body)
     }
 
     func updateKitchenStation(_ id: String, body: StationUpdate) async throws -> KitchenStation {

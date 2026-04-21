@@ -32,6 +32,8 @@ final class POSViewModel: ObservableObject {
     @Published var customerPhone: String = ""
     @Published var orderNotes: String = ""
     @Published var discountAmount: Double = 0
+    @Published var discountPercent: Double = 0
+    @Published var discountIsPercent: Bool = false
     @Published var discountOrigin: DiscountOrigin = .none
     @Published var couponCode: String = ""
     @Published var appliedCoupon: CouponValidationResult?
@@ -91,6 +93,12 @@ final class POSViewModel: ObservableObject {
         }
         if discountOrigin == .loyalty {
             return l10n.loyaltyDiscount
+        }
+        if discountIsPercent && discountPercent > 0 {
+            let pct = discountPercent.truncatingRemainder(dividingBy: 1) == 0
+                ? String(format: "%.0f", discountPercent)
+                : String(format: "%.1f", discountPercent)
+            return "\(l10n.discount) (\(pct)%)"
         }
         return l10n.discount
     }
@@ -155,6 +163,7 @@ final class POSViewModel: ObservableObject {
         } else {
             cartItems.append(CartItem(product: product, quantity: 1, notes: notes, selectedModifiers: modifiers))
         }
+        recomputePercentDiscountIfNeeded()
         let impact = UIImpactFeedbackGenerator(style: .light)
         impact.impactOccurred()
     }
@@ -162,21 +171,25 @@ final class POSViewModel: ObservableObject {
     func incrementItem(_ item: CartItem) {
         guard let idx = cartItems.firstIndex(where: { $0.id == item.id }) else { return }
         cartItems[idx].quantity += 1
+        recomputePercentDiscountIfNeeded()
     }
 
     func decrementItem(_ item: CartItem) {
         guard let idx = cartItems.firstIndex(where: { $0.id == item.id }) else { return }
         if cartItems[idx].quantity > 1 { cartItems[idx].quantity -= 1 }
         else { cartItems.remove(at: idx) }
+        recomputePercentDiscountIfNeeded()
     }
 
     func removeItem(_ item: CartItem) {
         cartItems.removeAll { $0.id == item.id }
+        recomputePercentDiscountIfNeeded()
     }
 
     func replaceModifiers(for item: CartItem, with newModifiers: [SelectedModifier]) {
         guard let idx = cartItems.firstIndex(where: { $0.id == item.id }) else { return }
         cartItems[idx].selectedModifiers = newModifiers
+        recomputePercentDiscountIfNeeded()
     }
 
     func clearCart() {
@@ -198,11 +211,32 @@ final class POSViewModel: ObservableObject {
         loyaltyRedemption = nil
         loyaltyPointsToRedeem = ""
         discountOrigin = .manual
-        discountAmount = min(amount, cartSubtotal)
+        discountIsPercent = false
+        discountPercent = 0
+        discountAmount = min(max(amount, 0), cartSubtotal)
+    }
+
+    func applyPercentDiscount(_ percent: Double) {
+        appliedCoupon = nil
+        couponCode = ""
+        loyaltyRedemption = nil
+        loyaltyPointsToRedeem = ""
+        discountOrigin = .manual
+        let clamped = min(max(percent, 0), 100)
+        discountIsPercent = true
+        discountPercent = clamped
+        discountAmount = min(cartSubtotal * clamped / 100.0, cartSubtotal)
+    }
+
+    private func recomputePercentDiscountIfNeeded() {
+        guard discountIsPercent, discountOrigin == .manual else { return }
+        discountAmount = min(cartSubtotal * discountPercent / 100.0, cartSubtotal)
     }
 
     func clearDiscountState() {
         discountAmount = 0
+        discountPercent = 0
+        discountIsPercent = false
         discountOrigin = .none
         appliedCoupon = nil
         couponCode = ""
@@ -426,6 +460,11 @@ final class POSViewModel: ObservableObject {
 
         do {
             let order = try await api.createOrder(create)
+            // Dispatch dine-in orders to KDS immediately so kitchen can start cooking.
+            // Takeaway/delivery orders are dispatched after payment in payOrder().
+            if orderType == .dineIn {
+                await dispatchToKitchen(orderId: order.id)
+            }
             return order
         } catch {
             // If offline, queue for later
@@ -436,6 +475,24 @@ final class POSViewModel: ObservableObject {
             appState.showError(error.localizedDescription)
             return nil
         }
+    }
+
+    /// The backend auto-routes newly created orders (status = "received") to the
+    /// KDS queue. We only need to nudge the local KDS view to refresh.
+    func dispatchToKitchen(orderId: String) async {
+        NotificationCenter.default.post(name: Notification.Name("kdsOrdersDidChange"), object: nil)
+    }
+
+    /// Cashier action: place the current cart as a kitchen order WITHOUT taking
+    /// payment. The order stays in "received" status so it shows up on the KDS
+    /// queue immediately. Cashier collects payment later from the Orders screen.
+    func sendOrderToKitchenOnly() async {
+        guard !cartItems.isEmpty else { return }
+        guard let order = await placeOrder() else { return }
+        await dispatchToKitchen(orderId: order.id)
+        clearCart()
+        appState.showSuccess("\(l10n.paymentSuccessfulOrder) #\(order.displayNumber ?? 0) — \(l10n.sentToKitchen)")
+        await appState.refreshManagerSnapshot()
     }
 
     // MARK: Place Order Offline
@@ -511,8 +568,12 @@ final class POSViewModel: ObservableObject {
             )
             lastCompletedOrderQR = localInv.qrCodeBase64
             await earnLoyaltyPointsIfNeeded(order: paid, totalAmount: capturedSubtotal - capturedDiscount)
+            // The order was already auto-routed to the KDS at creation time
+            // (status = "received"). Paid orders no longer appear on the KDS
+            // backend filter, so just refresh the local view.
+            await dispatchToKitchen(orderId: paid.id)
             clearCart()
-            appState.showSuccess("Payment successful! Order #\(paid.displayNumber ?? 0)")
+            appState.showSuccess("\(l10n.paymentSuccessfulOrder) #\(paid.displayNumber ?? 0) — \(l10n.sentToKitchen)")
             await appState.refreshManagerSnapshot()
             isProcessingPayment = false
             return true

@@ -182,6 +182,9 @@ struct CartView: View {
                                       hasValue: !vm.orderNotes.isEmpty, compact: true, action: showNote)
                     QuickActionButton(icon: "tag.fill", label: l10n.discount,
                                       hasValue: vm.discountAmount > 0, compact: true, action: showDiscount)
+                    QuickActionButton(icon: "flame.fill", label: l10n.sendToKitchen, compact: true) {
+                        Task { await vm.sendOrderToKitchenOnly() }
+                    }
                     QuickActionButton(icon: "clock.fill", label: l10n.hold, compact: true) {
                         Task { await vm.holdCurrentOrder() }
                     }
@@ -309,6 +312,17 @@ struct CartItemRow: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(onEditModifiers == nil)
+                } else if onEditModifiers != nil {
+                    Button(action: { onEditModifiers?() }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "plus.circle")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text(L10n.shared.addExtras)
+                                .font(AppTheme.caption(11))
+                        }
+                        .foregroundColor(AppTheme.accent)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
