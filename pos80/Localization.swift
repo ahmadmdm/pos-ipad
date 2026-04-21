@@ -92,15 +92,28 @@ extension L10n {
 
     func tabName(_ tab: String) -> String {
         switch tab.lowercased() {
-        case "pos":      return tabPOS
-        case "orders":   return tabOrders
-        case "tables":   return tabTables
-        case "shift":    return tabShift
-        case "reports":  return tabReports
-        case "settings": return tabSettings
-        default:         return tab
+        case "pos":          return tabPOS
+        case "orders":       return tabOrders
+        case "tables":       return tabTables
+        case "shift":        return tabShift
+        case "reports":      return tabReports
+        case "inventory":    return tabInventory
+        case "kds":          return tabKDS
+        case "reservations": return tabReservations
+        case "delivery":     return tabDelivery
+        case "coupons":      return tabCoupons
+        case "schedules":    return tabSchedules
+        case "settings":     return tabSettings
+        default:             return tab
         }
     }
+
+    var tabInventory: String { t("Inventory", "المخزون") }
+    var tabKDS: String { t("KDS", "شاشة المطبخ") }
+    var tabReservations: String { t("Reservations", "الحجوزات") }
+    var tabDelivery: String { t("Delivery", "التوصيل") }
+    var tabCoupons: String { t("Coupons", "الكوبونات") }
+    var tabSchedules: String { t("Schedules", "الجداول") }
 
     // MARK: POS / Cart
     var searchProducts: String { t("Search products or scan barcode...", "ابحث عن منتج أو امسح الباركود...") }
@@ -351,4 +364,200 @@ extension L10n {
     var pending: String { t("pending", "بانتظار المزامنة") }
     func ordersCount(_ n: Int) -> String { t("\(n) orders", "\(n) طلبات") }
     func itemsCount(_ n: Int) -> String { t("\(n) items", "\(n) عناصر") }
+
+    // MARK: - Inventory
+    var inventory: String { t("Inventory", "المخزون") }
+    var inventorySubtitle: String { t("Manage raw materials, batches & recipes", "إدارة المواد الخام والدفعات والوصفات") }
+    var rawMaterials: String { t("Raw Materials", "المواد الخام") }
+    var batches: String { t("Batches", "الدفعات") }
+    var recipes: String { t("Recipes", "الوصفات") }
+    var addMaterial: String { t("Add Material", "إضافة مادة") }
+    var editMaterial: String { t("Edit Material", "تعديل مادة") }
+    var addBatch: String { t("Add Batch", "إضافة دفعة") }
+    var rawMaterial: String { t("Raw Material", "المادة الخام") }
+    var selectMaterial: String { t("Select Material", "اختر المادة") }
+    var stock: String { t("Stock", "المخزون") }
+    var currentStock: String { t("Current Stock", "المخزون الحالي") }
+    var lowStockThreshold: String { t("Low Stock Threshold", "حد المخزون المنخفض") }
+    var costPerUnit: String { t("Cost per Unit", "التكلفة لكل وحدة") }
+    var batchNumber: String { t("Batch Number", "رقم الدفعة") }
+    var expiryDate: String { t("Expiry Date", "تاريخ الانتهاء") }
+    var selectProduct: String { t("Select a product to view its recipe", "اختر منتج لعرض وصفته") }
+    var qty: String { t("Qty", "الكمية") }
+    var expiry: String { t("Expiry", "الانتهاء") }
+    var cost: String { t("Cost", "التكلفة") }
+    var quantity: String { t("Quantity", "الكمية") }
+    var unit: String { t("Unit", "الوحدة") }
+
+    // MARK: - Coupons
+    var coupons: String { t("Coupons", "الكوبونات") }
+    var couponsSubtitle: String { t("Manage discount coupons", "إدارة كوبونات الخصم") }
+    var addCoupon: String { t("Add Coupon", "إضافة كوبون") }
+    var editCoupon: String { t("Edit Coupon", "تعديل كوبون") }
+    var value: String { t("Value", "القيمة") }
+    var description: String { t("Description", "الوصف") }
+    var limits: String { t("Limits", "الحدود") }
+    var minOrderValue: String { t("Min Order Value", "الحد الأدنى للطلب") }
+    var maxDiscountAmount: String { t("Max Discount Amount", "الحد الأقصى للخصم") }
+    var maxUses: String { t("Max Uses", "الحد الأقصى للاستخدام") }
+    var validity: String { t("Validity", "الصلاحية") }
+    var validFrom: String { t("Valid From", "صالح من") }
+    var validUntil: String { t("Valid Until", "صالح حتى") }
+    var active: String { t("Active", "نشط") }
+    var inactive: String { t("Inactive", "غير نشط") }
+    var usage: String { t("Usage", "الاستخدام") }
+    var expires: String { t("Expires", "ينتهي") }
+
+    // MARK: - KDS
+    var kds: String { t("Kitchen Display", "شاشة المطبخ") }
+    var kdsSubtitle: String { t("Live kitchen order queue", "قائمة طلبات المطبخ المباشرة") }
+    var noKDSOrders: String { t("No orders in queue", "لا توجد طلبات في القائمة") }
+    var stations: String { t("Stations", "المحطات") }
+    var allStations: String { t("All Stations", "جميع المحطات") }
+    var startPreparing: String { t("Start Preparing", "بدء التحضير") }
+    var kitchenStations: String { t("Kitchen Stations", "محطات المطبخ") }
+    var categories: String { t("Categories", "الفئات") }
+
+    // MARK: - Reservations
+    var reservations: String { t("Reservations", "الحجوزات") }
+    var reservationsSubtitle: String { t("Manage table reservations", "إدارة حجوزات الطاولات") }
+    var noReservations: String { t("No reservations found", "لا توجد حجوزات") }
+    var addReservation: String { t("Add Reservation", "إضافة حجز") }
+    var editReservation: String { t("Edit Reservation", "تعديل حجز") }
+    var customerInfo: String { t("Customer Info", "معلومات العميل") }
+    var date: String { t("Date", "التاريخ") }
+    var time: String { t("Time", "الوقت") }
+    var partySize: String { t("Party Size", "عدد الأشخاص") }
+    var confirm: String { t("Confirm", "تأكيد") }
+    var seat: String { t("Seat", "إجلاس") }
+    var complete: String { t("Complete", "إكمال") }
+    var edit: String { t("Edit", "تعديل") }
+    var delete: String { t("Delete", "حذف") }
+
+    // MARK: - Delivery
+    var deliverySubtitle: String { t("Manage delivery partners & orders", "إدارة شركاء ومتطلبات التوصيل") }
+    var deliveryOrders: String { t("Delivery Orders", "طلبات التوصيل") }
+    var deliveryPartners: String { t("Delivery Partners", "شركاء التوصيل") }
+    var noDeliveryOrders: String { t("No delivery orders", "لا توجد طلبات توصيل") }
+    var addPartner: String { t("Add Partner", "إضافة شريك") }
+    var editPartner: String { t("Edit Partner", "تعديل شريك") }
+    var vehicleLabel: String { t("Vehicle Label", "وصف المركبة") }
+    var fee: String { t("Fee", "الرسوم") }
+
+    // MARK: - Staff Schedules
+    var staffSchedules: String { t("Staff Schedules", "جداول الموظفين") }
+    var staffSchedulesSubtitle: String { t("Manage staff shifts & days off", "إدارة ورديات الموظفين وأيام الإجازة") }
+    var noSchedules: String { t("No schedules for this date", "لا توجد جداول لهذا التاريخ") }
+    var addSchedule: String { t("Add Schedule", "إضافة جدول") }
+    var editSchedule: String { t("Edit Schedule", "تعديل جدول") }
+    var staffMember: String { t("Staff Member", "الموظف") }
+    var selectStaff: String { t("Select Staff", "اختر الموظف") }
+    var dayOff: String { t("Day Off", "يوم إجازة") }
+    var shiftStart: String { t("Shift Start", "بداية الوردية") }
+    var shiftEnd: String { t("Shift End", "نهاية الوردية") }
+
+    // MARK: - 2FA & Auth
+    var twoFactorAuth: String { t("Two-Factor Authentication", "المصادقة الثنائية") }
+    var twoFactorSubtitle: String { t("Add an extra layer of security to your account", "أضف طبقة أمان إضافية لحسابك") }
+    var enable2FA: String { t("Enable 2FA", "تفعيل المصادقة الثنائية") }
+    var disable2FA: String { t("Disable 2FA", "تعطيل المصادقة الثنائية") }
+    var scanQRCode: String { t("Scan this QR code with your authenticator app", "امسح رمز QR بتطبيق المصادقة") }
+    var enterTOTPCode: String { t("Enter the 6-digit code from your authenticator app", "أدخل الرمز المكون من 6 أرقام من تطبيق المصادقة") }
+    var totpCode: String { t("TOTP Code", "رمز المصادقة") }
+    var verify: String { t("Verify", "تحقق") }
+    var twoFAEnabled: String { t("2FA is enabled", "المصادقة الثنائية مفعّلة") }
+    var twoFADisabled: String { t("2FA is disabled", "المصادقة الثنائية معطّلة") }
+    var twoFARequired: String { t("Two-factor authentication required", "المصادقة الثنائية مطلوبة") }
+    var twoFASetupSuccess: String { t("2FA enabled successfully", "تم تفعيل المصادقة الثنائية بنجاح") }
+    var twoFADisableSuccess: String { t("2FA disabled successfully", "تم تعطيل المصادقة الثنائية بنجاح") }
+    var secretKey: String { t("Secret Key", "المفتاح السري") }
+
+    // MARK: - Change Password
+    var changePassword: String { t("Change Password", "تغيير كلمة المرور") }
+    var currentPassword: String { t("Current Password", "كلمة المرور الحالية") }
+    var newPassword: String { t("New Password", "كلمة المرور الجديدة") }
+    var confirmPassword: String { t("Confirm Password", "تأكيد كلمة المرور") }
+    var passwordChanged: String { t("Password changed successfully", "تم تغيير كلمة المرور بنجاح") }
+    var passwordsDoNotMatch: String { t("Passwords do not match", "كلمات المرور غير متطابقة") }
+
+    // MARK: - Loyalty
+    var loyaltyPoints: String { t("Loyalty Points", "نقاط الولاء") }
+    var earnPoints: String { t("Earn Points", "كسب النقاط") }
+    var redeemPoints: String { t("Redeem Points", "استبدال النقاط") }
+    var pointsBalance: String { t("Points Balance", "رصيد النقاط") }
+    var pointsToRedeem: String { t("Points to Redeem", "النقاط المراد استبدالها") }
+    var redeemAsDiscount: String { t("Redeem as Discount", "استبدال كخصم") }
+    var pointsEarned: String { t("Points earned successfully", "تم كسب النقاط بنجاح") }
+    var pointsRedeemed: String { t("Points redeemed successfully", "تم استبدال النقاط بنجاح") }
+    var insufficientPoints: String { t("Insufficient points", "نقاط غير كافية") }
+    var loyaltyDiscount: String { t("Loyalty Discount", "خصم الولاء") }
+
+    // MARK: - Product Availability
+    var toggleAvailability: String { t("Toggle Availability", "تبديل التوفر") }
+    var markUnavailable: String { t("Mark Unavailable", "تحديد غير متوفر") }
+    var markAvailable: String { t("Mark Available", "تحديد متوفر") }
+    var productUnavailable: String { t("Product marked as unavailable", "تم تحديد المنتج كغير متوفر") }
+    var productAvailable: String { t("Product marked as available", "تم تحديد المنتج كمتوفر") }
+
+    // MARK: - Reports (Extended)
+    var dailyReport: String { t("Daily Report", "التقرير اليومي") }
+    var monthlyReport: String { t("Monthly Report", "التقرير الشهري") }
+    var profitabilityReport: String { t("Profitability", "الربحية") }
+    var ordersReport: String { t("Orders Report", "تقرير الطلبات") }
+    var revenue: String { t("Revenue", "الإيرادات") }
+    var profit: String { t("Profit", "الربح") }
+    var margin: String { t("Margin", "الهامش") }
+    var productName: String { t("Product", "المنتج") }
+    var unitsSold: String { t("Units Sold", "الوحدات المباعة") }
+    var selectDate: String { t("Select Date", "اختر التاريخ") }
+    var reportDate: String { t("Report Date", "تاريخ التقرير") }
+    var totalRevenueLbl: String { t("Total Revenue", "إجمالي الإيرادات") }
+    var totalCost: String { t("Total Cost", "إجمالي التكلفة") }
+    var totalProfit: String { t("Total Profit", "إجمالي الربح") }
+
+    // MARK: - Tables (Extended)
+    var addTable: String { t("Add Table", "إضافة طاولة") }
+    var editTable: String { t("Edit Table", "تعديل الطاولة") }
+    var deleteTable: String { t("Delete Table", "حذف الطاولة") }
+    var tableNumber: String { t("Table Number", "رقم الطاولة") }
+    var section: String { t("Section", "القسم") }
+    var capacity: String { t("Capacity", "السعة") }
+    var ringBell: String { t("Ring Bell", "رنين الجرس") }
+    var bellRung: String { t("Bell rung for table", "تم رنين الجرس للطاولة") }
+    var viewQR: String { t("View QR", "عرض QR") }
+    var tableDeleted: String { t("Table deleted", "تم حذف الطاولة") }
+    var tableUpdated: String { t("Table updated", "تم تحديث الطاولة") }
+
+    // MARK: - Staff CRUD
+    var editStaff: String { t("Edit Staff", "تعديل موظف") }
+    var deleteStaff: String { t("Delete Staff", "حذف موظف") }
+    var email: String { t("Email", "البريد الإلكتروني") }
+    var role: String { t("Role", "الدور") }
+    var pin: String { t("PIN", "الرقم السري") }
+    var permissions: String { t("Permissions", "الصلاحيات") }
+    var staffCreated: String { t("Staff member created", "تم إنشاء الموظف") }
+    var staffUpdated: String { t("Staff member updated", "تم تحديث الموظف") }
+    var staffDeleted: String { t("Staff member deactivated", "تم تعطيل الموظف") }
+    var resetPIN: String { t("Reset PIN", "إعادة تعيين الرقم السري") }
+    var pinUpdated: String { t("PIN updated", "تم تحديث الرقم السري") }
+
+    // MARK: - Subscription
+    var subscription: String { t("Subscription", "الاشتراك") }
+    var subscriptionSubtitle: String { t("Your plan & usage details", "تفاصيل خطتك واستخدامك") }
+    var currentPlan: String { t("Current Plan", "الخطة الحالية") }
+    var branches: String { t("Branches", "الفروع") }
+    var users: String { t("Users", "المستخدمين") }
+    var products_l10n: String { t("Products", "المنتجات") }
+    var used: String { t("Used", "مستخدم") }
+    var of_l10n: String { t("of", "من") }
+
+    // MARK: - Common
+    var details: String { t("Details", "التفاصيل") }
+    var nameAr: String { t("Name (Arabic)", "الاسم بالعربي") }
+    var nameEn: String { t("Name (English)", "الاسم بالإنجليزي") }
+    var name: String { t("Name", "الاسم") }
+    var phone: String { t("Phone", "الهاتف") }
+    var notes: String { t("Notes", "ملاحظات") }
+    var done: String { t("Done", "تم") }
+    var serverLogout: String { t("Logout from server", "تسجيل خروج من الخادم") }
 }

@@ -9,6 +9,7 @@ final class POSViewModel: ObservableObject {
         case none
         case manual
         case coupon
+        case loyalty
     }
 
     private let api = APIService.shared
@@ -35,8 +36,11 @@ final class POSViewModel: ObservableObject {
     @Published var couponCode: String = ""
     @Published var appliedCoupon: CouponValidationResult?
     @Published var loyaltyCustomer: LoyaltyCustomer?
+    @Published var loyaltyRedemption: RedemptionValidation?
+    @Published var loyaltyPointsToRedeem = ""
     @Published var customerInsights: [CustomerInsight] = []
     @Published var isApplyingCoupon = false
+    @Published var isApplyingLoyaltyRedemption = false
     @Published var isLookingUpLoyaltyCustomer = false
     @Published var isLoadingCustomerInsights = false
 
@@ -84,6 +88,9 @@ final class POSViewModel: ObservableObject {
     var discountSummaryLabel: String {
         if let coupon = appliedCoupon, let code = coupon.code ?? nonEmptyTrimmed(couponCode) {
             return "\(l10n.discount) (\(code))"
+        }
+        if discountOrigin == .loyalty {
+            return l10n.loyaltyDiscount
         }
         return l10n.discount
     }
@@ -188,6 +195,8 @@ final class POSViewModel: ObservableObject {
     func applyDiscount(_ amount: Double) {
         appliedCoupon = nil
         couponCode = ""
+        loyaltyRedemption = nil
+        loyaltyPointsToRedeem = ""
         discountOrigin = .manual
         discountAmount = min(amount, cartSubtotal)
     }
@@ -197,6 +206,8 @@ final class POSViewModel: ObservableObject {
         discountOrigin = .none
         appliedCoupon = nil
         couponCode = ""
+        loyaltyRedemption = nil
+        loyaltyPointsToRedeem = ""
     }
 
     func applyCoupon() async -> Bool {
@@ -225,6 +236,8 @@ final class POSViewModel: ObservableObject {
 
             appliedCoupon = result
             couponCode = (result.code ?? trimmedCode).uppercased()
+            loyaltyRedemption = nil
+            loyaltyPointsToRedeem = ""
             discountOrigin = .coupon
             discountAmount = min(result.discountAmount, cartSubtotal)
             appState.showSuccess(result.message.isEmpty ? l10n.couponApplied(couponCode) : result.message)
@@ -284,6 +297,96 @@ final class POSViewModel: ObservableObject {
         customerPhone = insight.phone ?? ""
         guard let matchingPhone = insight.phone, !matchingPhone.isEmpty else { return }
         Task { await lookupLoyaltyCustomer() }
+    }
+
+    func applyLoyaltyRedemption() async -> Bool {
+        guard let loyaltyCustomer else {
+            appState.showError(l10n.lookupLoyalty)
+            return false
+        }
+        guard let points = Int(loyaltyPointsToRedeem), points > 0 else {
+            appState.showError(l10n.pointsToRedeem)
+            return false
+        }
+        guard cartSubtotal > 0 else {
+            appState.showError(l10n.addItemsBeforeCoupon)
+            return false
+        }
+
+        isApplyingLoyaltyRedemption = true
+        defer { isApplyingLoyaltyRedemption = false }
+
+        do {
+            let validation = try await api.validateLoyaltyRedemption(
+                RedeemRequest(customerId: loyaltyCustomer.id, orderId: nil, points: points)
+            )
+            guard validation.valid else {
+                loyaltyRedemption = nil
+                discountOrigin = .none
+                discountAmount = 0
+                appState.showError(validation.message ?? l10n.insufficientPoints)
+                return false
+            }
+            loyaltyRedemption = validation
+            appliedCoupon = nil
+            couponCode = ""
+            discountOrigin = .loyalty
+            discountAmount = min(validation.discountAmount ?? 0, cartSubtotal)
+            appState.showSuccess(validation.message ?? l10n.pointsRedeemed)
+            return true
+        } catch {
+            appState.showError(error.localizedDescription)
+            return false
+        }
+    }
+
+    func clearLoyaltyRedemption() {
+        guard discountOrigin == .loyalty || loyaltyRedemption != nil else { return }
+        discountAmount = 0
+        discountOrigin = .none
+        loyaltyRedemption = nil
+        loyaltyPointsToRedeem = ""
+    }
+
+    func commitLoyaltyRedemption(orderId: String) async -> Bool {
+        guard let loyaltyCustomer,
+              let points = Int(loyaltyPointsToRedeem),
+              points > 0,
+              discountOrigin == .loyalty else { return true }
+        do {
+            let result = try await api.redeemLoyaltyPoints(
+                RedeemRequest(customerId: loyaltyCustomer.id, orderId: orderId, points: points)
+            )
+            if result.valid == false {
+                appState.showError(result.message ?? l10n.insufficientPoints)
+                return false
+            }
+            return true
+        } catch {
+            appState.showError(error.localizedDescription)
+            return false
+        }
+    }
+
+    func earnLoyaltyPointsIfNeeded(order: Order, totalAmount: Double) async {
+        guard let loyaltyCustomer else { return }
+        do {
+            try await api.earnLoyaltyPoints(EarnRequest(customerId: loyaltyCustomer.id, orderId: order.id, totalAmount: totalAmount))
+        } catch {
+            // Non-blocking. Payment already succeeded.
+        }
+    }
+
+    func toggleAvailability(for product: Product) async {
+        do {
+            let updated = try await api.toggleProductAvailability(product.id)
+            if let idx = products.firstIndex(where: { $0.id == updated.id }) {
+                products[idx] = updated
+            }
+            appState.showSuccess((updated.isAvailable ?? true) ? l10n.productAvailable : l10n.productUnavailable)
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
     }
 
     // MARK: Place Order
@@ -407,6 +510,7 @@ final class POSViewModel: ObservableObject {
                 discountAmount: capturedDiscount
             )
             lastCompletedOrderQR = localInv.qrCodeBase64
+            await earnLoyaltyPointsIfNeeded(order: paid, totalAmount: capturedSubtotal - capturedDiscount)
             clearCart()
             appState.showSuccess("Payment successful! Order #\(paid.displayNumber ?? 0)")
             await appState.refreshManagerSnapshot()
@@ -511,6 +615,7 @@ final class POSViewModel: ObservableObject {
         do {
             _ = try await api.splitPayOrder(order.id, splits: splits)
             lastCompletedOrder = order
+            await earnLoyaltyPointsIfNeeded(order: order, totalAmount: cartSubtotal - discountAmount)
             clearCart()
             appState.showSuccess("Split payment successful! Order #\(order.displayNumber ?? 0)")
             await appState.refreshManagerSnapshot()

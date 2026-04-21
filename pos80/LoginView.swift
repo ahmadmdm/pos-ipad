@@ -123,6 +123,10 @@ struct LoginView: View {
                 pinUsers = []
             }
         }
+        .sheet(isPresented: $appState.show2FAPrompt) {
+            TwoFALoginSheet()
+                .environmentObject(appState)
+        }
     }
 
     // MARK: - Branding Panel
@@ -851,5 +855,81 @@ struct ServerConfigSheet: View {
             }
         }
         .compatMediumDetent()
+    }
+}
+
+// MARK: - 2FA Login Sheet
+struct TwoFALoginSheet: View {
+    @EnvironmentObject var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    private let l10n = L10n.shared
+    @State private var totpCode = ""
+
+    var body: some View {
+        CompatNavigationContainer {
+            VStack(spacing: 24) {
+                Image(systemName: "lock.shield.fill")
+                    .font(.system(size: 48))
+                    .foregroundColor(AppTheme.accent)
+
+                Text(l10n.twoFARequired)
+                    .font(AppTheme.title2())
+                    .foregroundColor(AppTheme.textPrimary)
+
+                Text(l10n.enterTOTPCode)
+                    .font(AppTheme.body())
+                    .foregroundColor(AppTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+
+                TextField(l10n.totpCode, text: $totpCode)
+                    .font(AppTheme.title2(28))
+                    .multilineTextAlignment(.center)
+                    .keyboardType(.numberPad)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(AppTheme.card)
+                    .cornerRadius(AppTheme.r12)
+                    .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
+                        .strokeBorder(AppTheme.accent.opacity(0.4), lineWidth: 1))
+                    .frame(maxWidth: 200)
+
+                if let err = appState.errorMessage {
+                    Text(err)
+                        .font(AppTheme.caption())
+                        .foregroundColor(AppTheme.danger)
+                }
+
+                Button {
+                    Task { await appState.validate2FA(code: totpCode) }
+                } label: {
+                    ZStack {
+                        if appState.isLoading {
+                            ProgressView().tint(.white)
+                        } else {
+                            Text(l10n.verify)
+                        }
+                    }
+                }
+                .buttonStyle(PrimaryButtonStyle(isFullWidth: true))
+                .disabled(totpCode.count < 6 || appState.isLoading)
+                .frame(maxWidth: 300)
+
+                Spacer()
+            }
+            .padding(32)
+            .background(AppTheme.surface.ignoresSafeArea())
+            .navigationTitle(l10n.twoFactorAuth)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(l10n.cancel) {
+                        appState.pending2FAToken = nil
+                        appState.show2FAPrompt = false
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .interactiveDismissDisabled()
     }
 }

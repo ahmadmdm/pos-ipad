@@ -8,6 +8,10 @@ struct OrdersView: View {
     @State private var orders: [Order] = []
     @State private var isLoading = false
     @State private var selectedStatus: String? = nil
+    @State private var selectedOrderType: String? = nil
+    @State private var filterDate = Date()
+    @State private var useDateFilter = false
+    @State private var resultLimit = 50
     @State private var selectedOrder: Order?
     @State private var searchText = ""
     @State private var pdfData: Data?
@@ -19,6 +23,10 @@ struct OrdersView: View {
     private var statusFilters: [(label: String, value: String?)] {
         [(l10n.allStatus, nil), (l10n.received, "received"), (l10n.preparing, "preparing"),
          (l10n.ready, "ready"), (l10n.paid, "paid"), (l10n.cancelled, "cancelled")]
+    }
+
+    private var orderTypeFilters: [(label: String, value: String?)] {
+        [("All Types", nil), ("Dine In", "dine_in"), ("Takeaway", "takeaway"), (l10n.delivery, "delivery")]
     }
 
     private var filteredOrders: [Order] {
@@ -40,6 +48,7 @@ struct OrdersView: View {
             VStack(spacing: 0) {
                 ordersHeader
                 statusFilterBar
+                advancedFilterBar
                 if isLoading {
                     LoadingRows()
                 } else if filteredOrders.isEmpty {
@@ -187,6 +196,66 @@ struct OrdersView: View {
         }
     }
 
+    private var advancedFilterBar: some View {
+        VStack(spacing: 10) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(orderTypeFilters, id: \.label) { filter in
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                selectedOrderType = filter.value
+                            }
+                            Task { await loadOrders() }
+                        } label: {
+                            Text(filter.label)
+                                .font(AppTheme.caption(12))
+                                .foregroundColor(selectedOrderType == filter.value ? .white : AppTheme.textSecondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(selectedOrderType == filter.value ? AppTheme.info : AppTheme.card)
+                                .cornerRadius(8)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+
+            HStack(spacing: 12) {
+                Toggle("Date", isOn: $useDateFilter)
+                    .toggleStyle(SwitchToggleStyle(tint: AppTheme.accent))
+                    .font(AppTheme.caption(12))
+
+                DatePicker("", selection: $filterDate, displayedComponents: .date)
+                    .labelsHidden()
+                    .disabled(!useDateFilter)
+
+                Picker("Limit", selection: $resultLimit) {
+                    Text("25").tag(25)
+                    Text("50").tag(50)
+                    Text("100").tag(100)
+                }
+                .pickerStyle(.segmented)
+
+                Button {
+                    Task { await loadOrders() }
+                } label: {
+                    Text("Apply")
+                        .font(AppTheme.caption(12))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(AppTheme.accent)
+                        .cornerRadius(8)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(AppTheme.border).frame(height: 1)
+        }
+    }
+
     // MARK: - Orders List
     private var ordersList: some View {
         ScrollView(showsIndicators: false) {
@@ -199,6 +268,8 @@ struct OrdersView: View {
                     } onPDF: {
 
                         Task { await downloadPDF(for: order) }
+                    } onStatusChange: { newStatus in
+                        Task { await quickUpdateStatus(for: order, to: newStatus) }
                     }
                     .contextMenu {
                         Button {
@@ -219,6 +290,27 @@ struct OrdersView: View {
                             Label("Copy Order #", systemImage: "doc.on.doc")
                         }
                         .compatOrderContextMenuTip()
+                        if order.status == "received" || order.status == "draft" {
+                            Button {
+                                Task { await quickUpdateStatus(for: order, to: "preparing") }
+                            } label: {
+                                Label(L10n.shared.markPreparing, systemImage: "flame.fill")
+                            }
+                        }
+                        if order.status == "preparing" {
+                            Button {
+                                Task { await quickUpdateStatus(for: order, to: "ready") }
+                            } label: {
+                                Label(L10n.shared.markReady, systemImage: "checkmark.seal.fill")
+                            }
+                        }
+                        if order.status == "ready" {
+                            Button {
+                                Task { await quickUpdateStatus(for: order, to: "served") }
+                            } label: {
+                                Label(L10n.shared.markServed, systemImage: "fork.knife")
+                            }
+                        }
                     }
                 }
             }
@@ -243,12 +335,41 @@ struct OrdersView: View {
     private func loadOrders() async {
         isLoading = true
         do {
-            orders = try await api.fetchOrders()
+            orders = try await api.fetchOrders(
+                status: selectedStatus,
+                page: 1,
+                orderTypes: selectedOrderType.map { [$0] } ?? [],
+                date: useDateFilter ? formattedDate(filterDate) : nil,
+                limit: resultLimit
+            )
             SpotlightManager.shared.indexOrders(orders)
         } catch {
             appState.toast = ToastMessage(type: .error, text: error.localizedDescription)
         }
         isLoading = false
+    }
+
+    private func quickUpdateStatus(for order: Order, to newStatus: String) async {
+        do {
+            let updated = try await api.updateOrderStatus(order.id, body: StatusUpdate(status: newStatus))
+            if let idx = orders.firstIndex(where: { $0.id == updated.id }) {
+                orders[idx] = updated
+            }
+            if selectedOrder?.id == updated.id {
+                selectedOrder = updated
+            }
+            appState.showSuccess(newStatus.capitalized)
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func formattedDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 }
 
@@ -258,6 +379,7 @@ struct OrderRow: View {
     let isSelected: Bool
     let onTap: () -> Void
     var onPDF: (() -> Void)? = nil
+    var onStatusChange: ((String) -> Void)? = nil
 
     var body: some View {
         Button(action: onTap) {
@@ -650,11 +772,7 @@ struct OrderDetailView: View {
     private func updateStatus(_ newStatus: String) async {
         isUpdating = true
         do {
-            struct StatusUpdate: Codable { let status: String }
-            let updated: Order = try await api.request(
-                path: "/orders/\(order.id)/status",
-                method: .patch,
-                body: StatusUpdate(status: newStatus))
+            let updated = try await api.updateOrderStatus(order.id, body: StatusUpdate(status: newStatus))
             onStatusChange(updated)
         } catch {
             appState.toast = ToastMessage(type: .error, text: error.localizedDescription)

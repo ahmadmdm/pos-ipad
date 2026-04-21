@@ -415,9 +415,24 @@ final class APIService {
         return try decodeOrder(from: data)
     }
 
-    func fetchOrders(status: String? = nil, page: Int = 1) async throws -> [Order] {
-        var path = "/orders?page=\(page)&per_page=50"
-        if let s = status { path += "&status=\(s)" }
+    func fetchOrders(status: String? = nil, page: Int = 1, orderTypes: [String] = [], date: String? = nil, limit: Int? = nil) async throws -> [Order] {
+        var queryItems = [
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "per_page", value: String(limit ?? 50))
+        ]
+        if let s = status {
+            queryItems.append(URLQueryItem(name: "status", value: s))
+        }
+        if let date, !date.isEmpty {
+            queryItems.append(URLQueryItem(name: "date", value: date))
+        }
+        for type in orderTypes where !type.isEmpty {
+            queryItems.append(URLQueryItem(name: "order_type[]", value: type))
+        }
+        var comps = URLComponents()
+        comps.path = "/orders"
+        comps.queryItems = queryItems
+        let path = comps.string ?? "/orders?page=\(page)&per_page=\(limit ?? 50)"
         let data = try await rawData(path: path, method: .get, body: nil)
         let decoder = JSONDecoder()
         if let arr = try? decoder.decode([Order].self, from: data) { return arr }
@@ -709,5 +724,444 @@ final class APIService {
         }
 
         return []
+    }
+
+    // ╔══════════════════════════════════════════════════════════════════╗
+    // ║  NEW API v2.2 ENDPOINTS                                         ║
+    // ╚══════════════════════════════════════════════════════════════════╝
+
+    // MARK: - Auth Enhancements
+    func logoutServer() async throws {
+        try await requestVoid(path: "/auth/logout", method: .post)
+    }
+
+    func verify2FA(_ body: Verify2FARequest, pendingToken: String) async throws -> TokenResponse {
+        return try await request(path: "/auth/2fa/verify", method: .post, body: body, accessTokenOverride: pendingToken)
+    }
+
+    func validate2FA(_ body: Verify2FARequest, pendingToken: String) async throws -> TokenResponse {
+        return try await request(path: "/auth/2fa/validate", method: .post, body: body, accessTokenOverride: pendingToken)
+    }
+
+    func setup2FA() async throws -> TwoFASetupResponse {
+        return try await request(path: "/auth/2fa/setup", method: .post)
+    }
+
+    func disable2FA() async throws {
+        try await requestVoid(path: "/auth/2fa/disable", method: .post)
+    }
+
+    func changePassword(_ body: ChangePasswordRequest) async throws {
+        try await requestVoid(path: "/auth/change-password", method: .post, body: body)
+    }
+
+    func getMe() async throws -> [String: Any] {
+        return try await requestAny(path: "/auth/me", method: .get, body: nil) as? [String: Any] ?? [:]
+    }
+
+    // MARK: - Staff CRUD
+    func createStaff(_ body: StaffCreate) async throws -> Staff {
+        return try await request(path: "/staff", method: .post, body: body)
+    }
+
+    func getStaffById(_ id: String) async throws -> Staff {
+        return try await request(path: "/staff/\(id)")
+    }
+
+    func updateStaff(_ id: String, body: StaffUpdate) async throws -> Staff {
+        return try await request(path: "/staff/\(id)", method: .put, body: body)
+    }
+
+    func deleteStaff(_ id: String) async throws {
+        try await requestVoid(path: "/staff/\(id)", method: .delete)
+    }
+
+    func updateStaffPin(_ id: String, body: PinUpdate) async throws {
+        try await requestVoid(path: "/staff/\(id)/pin", method: .put, body: body)
+    }
+
+    func fetchStaffShiftHistory(_ id: String) async throws -> [Shift] {
+        return try await request(path: "/staff/\(id)/shift-history")
+    }
+
+    // MARK: - Order Status Update
+    func updateOrderStatus(_ orderId: String, body: StatusUpdate) async throws -> Order {
+        let data = try await rawData(path: "/orders/\(orderId)/status", method: .put, body: body)
+        return try decodeOrder(from: data)
+    }
+
+    // MARK: - Menu CRUD
+    func createCategory(_ body: CategoryCreate) async throws -> ProductCategory {
+        return try await request(path: "/menu/categories", method: .post, body: body)
+    }
+
+    func updateCategory(_ id: String, body: CategoryCreate) async throws -> ProductCategory {
+        return try await request(path: "/menu/categories/\(id)", method: .put, body: body)
+    }
+
+    func deleteCategory(_ id: String) async throws {
+        try await requestVoid(path: "/menu/categories/\(id)", method: .delete)
+    }
+
+    func createProduct(_ body: ProductCreate) async throws -> Product {
+        return try await request(path: "/menu/products", method: .post, body: body)
+    }
+
+    func updateProduct(_ id: String, body: ProductCreate) async throws -> Product {
+        return try await request(path: "/menu/products/\(id)", method: .put, body: body)
+    }
+
+    func deleteProduct(_ id: String) async throws {
+        try await requestVoid(path: "/menu/products/\(id)", method: .delete)
+    }
+
+    func toggleProductAvailability(_ id: String) async throws -> Product {
+        return try await request(path: "/menu/products/\(id)/toggle-availability", method: .post)
+    }
+
+    func createModifier(productId: String, body: ModifierCreateFull) async throws -> ProductModifier {
+        return try await request(path: "/menu/products/\(productId)/modifiers", method: .post, body: body)
+    }
+
+    func updateModifier(productId: String, modifierId: String, body: ModifierCreateFull) async throws -> ProductModifier {
+        return try await request(path: "/menu/products/\(productId)/modifiers/\(modifierId)", method: .put, body: body)
+    }
+
+    func deleteModifier(productId: String, modifierId: String) async throws {
+        try await requestVoid(path: "/menu/products/\(productId)/modifiers/\(modifierId)", method: .delete)
+    }
+
+    func uploadMenuImage(imageData: Data, filename: String) async throws -> String {
+        let boundary = UUID().uuidString
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+        body.append(imageData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+
+        let url = URL(string: APIConfig.apiV1 + "/menu/upload-image")!
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(accessToken ?? "")", forHTTPHeaderField: "Authorization")
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        req.httpBody = body
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw APIError(detail: "Image upload failed")
+        }
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let urlStr = json["url"] as? String {
+            return urlStr
+        }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    func downloadMenuImportTemplate() async throws -> Data {
+        return try await rawData(path: "/menu/import/template", method: .get, body: nil)
+    }
+
+    func importMenuExcel(fileData: Data, filename: String) async throws -> MenuImportResult {
+        let boundary = UUID().uuidString
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+
+        let url = URL(string: APIConfig.apiV1 + "/menu/import")!
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(accessToken ?? "")", forHTTPHeaderField: "Authorization")
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        req.httpBody = body
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw APIError(detail: "Menu import failed")
+        }
+        return try JSONDecoder().decode(MenuImportResult.self, from: data)
+    }
+
+    // MARK: - Tables CRUD
+    func createTable(_ body: TableCreate) async throws -> RestaurantTable {
+        return try await request(path: "/tables", method: .post, body: body)
+    }
+
+    func updateTable(_ id: String, body: TableUpdate) async throws -> RestaurantTable {
+        return try await request(path: "/tables/\(id)", method: .put, body: body)
+    }
+
+    func deleteTable(_ id: String) async throws {
+        try await requestVoid(path: "/tables/\(id)", method: .delete)
+    }
+
+    func updateTablePosition(_ id: String, body: TablePositionUpdate) async throws {
+        try await requestVoid(path: "/tables/\(id)/position", method: .put, body: body)
+    }
+
+    func ringTableBell(_ id: String) async throws {
+        try await requestVoid(path: "/tables/\(id)/bell", method: .post)
+    }
+
+    func generateTableQR(_ id: String) async throws -> Data {
+        return try await rawData(path: "/tables/\(id)/qr", method: .get, body: nil)
+    }
+
+    // MARK: - Coupons CRUD
+    func fetchCoupons(skip: Int = 0, limit: Int = 50) async throws -> [Coupon] {
+        return try await request(path: "/coupons?skip=\(skip)&limit=\(limit)")
+    }
+
+    func getCoupon(_ id: String) async throws -> Coupon {
+        return try await request(path: "/coupons/\(id)")
+    }
+
+    func createCoupon(_ body: CouponCreate) async throws -> Coupon {
+        return try await request(path: "/coupons", method: .post, body: body)
+    }
+
+    func updateCoupon(_ id: String, body: CouponUpdate) async throws -> Coupon {
+        return try await request(path: "/coupons/\(id)", method: .put, body: body)
+    }
+
+    func deleteCoupon(_ id: String) async throws {
+        try await requestVoid(path: "/coupons/\(id)", method: .delete)
+    }
+
+    // MARK: - Loyalty Full
+    func fetchLoyaltySettings() async throws -> LoyaltySettings {
+        return try await request(path: "/loyalty/settings")
+    }
+
+    func updateLoyaltySettings(_ body: LoyaltySettingsUpdate) async throws -> LoyaltySettings {
+        return try await request(path: "/loyalty/settings", method: .put, body: body)
+    }
+
+    func fetchLoyaltyCustomers(skip: Int = 0, limit: Int = 50) async throws -> [LoyaltyCustomer] {
+        return try await request(path: "/loyalty/customers?skip=\(skip)&limit=\(limit)")
+    }
+
+    func createLoyaltyCustomer(_ body: CustomerCreate) async throws -> LoyaltyCustomer {
+        return try await request(path: "/loyalty/customers", method: .post, body: body)
+    }
+
+    func getLoyaltyCustomer(_ id: String) async throws -> LoyaltyCustomer {
+        return try await request(path: "/loyalty/customers/\(id)")
+    }
+
+    func adjustLoyaltyPoints(_ customerId: String, body: PointsAdjust) async throws {
+        try await requestVoid(path: "/loyalty/customers/\(customerId)/adjust", method: .post, body: body)
+    }
+
+    func earnLoyaltyPoints(_ body: EarnRequest) async throws {
+        try await requestVoid(path: "/loyalty/earn", method: .post, body: body)
+    }
+
+    func validateLoyaltyRedemption(_ body: RedeemRequest) async throws -> RedemptionValidation {
+        return try await request(path: "/loyalty/validate-redemption", method: .post, body: body)
+    }
+
+    func redeemLoyaltyPoints(_ body: RedeemRequest) async throws -> RedemptionValidation {
+        return try await request(path: "/loyalty/redeem", method: .post, body: body)
+    }
+
+    func fetchLoyaltyTransactions(customerId: String? = nil, skip: Int = 0, limit: Int = 50) async throws -> [LoyaltyTransaction] {
+        var path = "/loyalty/transactions?skip=\(skip)&limit=\(limit)"
+        if let cid = customerId { path += "&customer_id=\(cid)" }
+        return try await request(path: path)
+    }
+
+    // MARK: - Inventory
+    func fetchRawMaterials(skip: Int = 0, limit: Int = 50) async throws -> [RawMaterial] {
+        return try await request(path: "/inventory/raw-materials?skip=\(skip)&limit=\(limit)")
+    }
+
+    func createRawMaterial(_ body: RawMaterialCreate) async throws -> RawMaterial {
+        return try await request(path: "/inventory/raw-materials", method: .post, body: body)
+    }
+
+    func getRawMaterial(_ id: String) async throws -> RawMaterial {
+        return try await request(path: "/inventory/raw-materials/\(id)")
+    }
+
+    func updateRawMaterial(_ id: String, body: RawMaterialCreate) async throws -> RawMaterial {
+        return try await request(path: "/inventory/raw-materials/\(id)", method: .put, body: body)
+    }
+
+    func deleteRawMaterial(_ id: String) async throws {
+        try await requestVoid(path: "/inventory/raw-materials/\(id)", method: .delete)
+    }
+
+    func adjustStock(_ materialId: String, body: StockAdjustment) async throws {
+        try await requestVoid(path: "/inventory/raw-materials/\(materialId)/adjust", method: .post, body: body)
+    }
+
+    func fetchStockMovements(_ materialId: String) async throws -> [StockMovement] {
+        return try await request(path: "/inventory/raw-materials/\(materialId)/movements")
+    }
+
+    func fetchRecipe(productId: String) async throws -> Recipe {
+        return try await request(path: "/inventory/recipes/\(productId)")
+    }
+
+    func upsertRecipe(productId: String, body: RecipeUpsert) async throws -> Recipe {
+        return try await request(path: "/inventory/recipes/\(productId)", method: .put, body: body)
+    }
+
+    func deleteRecipe(productId: String) async throws {
+        try await requestVoid(path: "/inventory/recipes/\(productId)", method: .delete)
+    }
+
+    func fetchBatches(skip: Int = 0, limit: Int = 50) async throws -> [InventoryBatch] {
+        return try await request(path: "/inventory/batches?skip=\(skip)&limit=\(limit)")
+    }
+
+    func createBatch(_ body: BatchCreate) async throws -> InventoryBatch {
+        return try await request(path: "/inventory/batches", method: .post, body: body)
+    }
+
+    // MARK: - KDS
+    func fetchKDSOrders(stationId: String? = nil) async throws -> [Order] {
+        var path = "/kds/orders"
+        if let sid = stationId { path += "?station_id=\(sid)" }
+        let data = try await rawData(path: path, method: .get, body: nil)
+        return try decodeFlexibleArray(Order.self, from: data, rootKeys: ["orders", "items", "data"])
+    }
+
+    func bumpKDSOrder(_ orderId: String, body: BumpOrder) async throws {
+        try await requestVoid(path: "/kds/orders/\(orderId)/bump", method: .post, body: body)
+    }
+
+    // MARK: - Kitchen Stations
+    func fetchKitchenStations() async throws -> [KitchenStation] {
+        return try await request(path: "/kitchen-stations")
+    }
+
+    func createKitchenStation(_ body: StationCreate) async throws -> KitchenStation {
+        return try await request(path: "/kitchen-stations", method: .post, body: body)
+    }
+
+    func updateKitchenStation(_ id: String, body: StationUpdate) async throws -> KitchenStation {
+        return try await request(path: "/kitchen-stations/\(id)", method: .put, body: body)
+    }
+
+    func deleteKitchenStation(_ id: String) async throws {
+        try await requestVoid(path: "/kitchen-stations/\(id)", method: .delete)
+    }
+
+    // MARK: - Reservations
+    func fetchReservations(date: String? = nil, status: String? = nil, skip: Int = 0, limit: Int = 50) async throws -> [Reservation] {
+        var path = "/reservations?skip=\(skip)&limit=\(limit)"
+        if let d = date { path += "&date=\(d)" }
+        if let s = status { path += "&status=\(s)" }
+        return try await request(path: path)
+    }
+
+    func createReservation(_ body: ReservationCreate) async throws -> Reservation {
+        return try await request(path: "/reservations", method: .post, body: body)
+    }
+
+    func getReservation(_ id: String) async throws -> Reservation {
+        return try await request(path: "/reservations/\(id)")
+    }
+
+    func updateReservation(_ id: String, body: ReservationUpdate) async throws -> Reservation {
+        return try await request(path: "/reservations/\(id)", method: .put, body: body)
+    }
+
+    func deleteReservation(_ id: String) async throws {
+        try await requestVoid(path: "/reservations/\(id)", method: .delete)
+    }
+
+    // MARK: - Delivery
+    func fetchDeliveryPartners() async throws -> [DeliveryPartner] {
+        return try await request(path: "/delivery/partners")
+    }
+
+    func createDeliveryPartner(_ body: DeliveryPartnerCreate) async throws -> DeliveryPartner {
+        return try await request(path: "/delivery/partners", method: .post, body: body)
+    }
+
+    func updateDeliveryPartner(_ id: String, body: DeliveryPartnerUpdate) async throws -> DeliveryPartner {
+        return try await request(path: "/delivery/partners/\(id)", method: .put, body: body)
+    }
+
+    func deleteDeliveryPartner(_ id: String) async throws {
+        try await requestVoid(path: "/delivery/partners/\(id)", method: .delete)
+    }
+
+    func fetchDeliveryOrders(status: String? = nil) async throws -> [DeliveryOrder] {
+        var path = "/delivery/orders"
+        if let s = status { path += "?status=\(s)" }
+        return try await request(path: path)
+    }
+
+    func updateDeliveryOrder(_ id: String, body: DeliveryOrderUpdate) async throws -> DeliveryOrder {
+        return try await request(path: "/delivery/orders/\(id)", method: .put, body: body)
+    }
+
+    // MARK: - Staff Schedules
+    func fetchSchedules(branchId: String? = nil, dateFrom: String? = nil, dateTo: String? = nil) async throws -> [StaffSchedule] {
+        var params: [String] = []
+        if let b = branchId { params.append("branch_id=\(b)") }
+        if let f = dateFrom { params.append("date_from=\(f)") }
+        if let t = dateTo { params.append("date_to=\(t)") }
+        let query = params.isEmpty ? "" : "?" + params.joined(separator: "&")
+        return try await request(path: "/schedules\(query)")
+    }
+
+    func createSchedule(_ body: ScheduleCreate) async throws -> StaffSchedule {
+        return try await request(path: "/schedules", method: .post, body: body)
+    }
+
+    func updateSchedule(_ id: String, body: ScheduleUpdate) async throws -> StaffSchedule {
+        return try await request(path: "/schedules/\(id)", method: .put, body: body)
+    }
+
+    func deleteSchedule(_ id: String) async throws {
+        try await requestVoid(path: "/schedules/\(id)", method: .delete)
+    }
+
+    // MARK: - Reports (new)
+    func fetchDailyReport(date: String? = nil) async throws -> DailyReport {
+        var path = "/reports/daily"
+        if let d = date { path += "?date=\(d)" }
+        return try await request(path: path)
+    }
+
+    func fetchMonthlyReport(year: Int? = nil, month: Int? = nil) async throws -> MonthlyReport {
+        var params: [String] = []
+        if let y = year { params.append("year=\(y)") }
+        if let m = month { params.append("month=\(m)") }
+        let query = params.isEmpty ? "" : "?" + params.joined(separator: "&")
+        return try await request(path: "/reports/monthly\(query)")
+    }
+
+    func fetchProfitabilityReport(range: String = "30d") async throws -> [ProfitabilityRow] {
+        return try await request(path: "/reports/profitability?range=\(range)")
+    }
+
+    func fetchOrdersReport(range: String = "7d", skip: Int = 0, limit: Int = 50) async throws -> [Order] {
+        let q = dateRangeQuery(range: range)
+        let data = try await rawData(path: "/reports/orders?\(q)&skip=\(skip)&limit=\(limit)", method: .get, body: nil)
+        return try decodeFlexibleArray(Order.self, from: data, rootKeys: ["orders", "items", "data"])
+    }
+
+    // MARK: - Subscription
+    func fetchSubscriptionInfo() async throws -> SubscriptionInfo {
+        return try await request(path: "/subscription")
+    }
+
+    // MARK: - ZATCA Server
+    func zatcaOnboard() async throws -> [String: Any] {
+        return try await requestAny(path: "/zatca/onboard", method: .post, body: nil) as? [String: Any] ?? [:]
+    }
+
+    func fetchZATCAInvoices(skip: Int = 0, limit: Int = 50) async throws -> [[String: Any]] {
+        let result = try await requestAny(path: "/zatca/invoices?skip=\(skip)&limit=\(limit)", method: .get, body: nil)
+        return result as? [[String: Any]] ?? []
     }
 }

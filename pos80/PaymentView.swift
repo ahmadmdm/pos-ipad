@@ -472,6 +472,57 @@ struct PaymentView: View {
                 .cornerRadius(AppTheme.r12)
                 .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
                     .strokeBorder(AppTheme.success.opacity(0.2), lineWidth: 1))
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(l10n.redeemPoints)
+                        .font(AppTheme.headline())
+                        .foregroundColor(AppTheme.textSecondary)
+
+                    HStack(spacing: 10) {
+                        ThemeTextField(
+                            icon: "star.circle.fill",
+                            placeholder: l10n.pointsToRedeem,
+                            text: Binding(
+                                get: { vm.loyaltyPointsToRedeem },
+                                set: { vm.loyaltyPointsToRedeem = $0 }
+                            ),
+                            keyboardType: .numberPad,
+                            autocapitalization: .never
+                        )
+
+                        Button {
+                            if vm.discountOrigin == .loyalty {
+                                vm.clearLoyaltyRedemption()
+                            } else {
+                                Task { await vm.applyLoyaltyRedemption() }
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                if vm.isApplyingLoyaltyRedemption {
+                                    ProgressView().tint(.white)
+                                } else {
+                                    Image(systemName: vm.discountOrigin == .loyalty ? "xmark.circle.fill" : "sparkles")
+                                        .font(.system(size: 14, weight: .semibold))
+                                }
+                                Text(vm.discountOrigin == .loyalty ? l10n.cancel : l10n.redeemAsDiscount)
+                                    .font(AppTheme.caption(12))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .frame(height: 52)
+                            .background(vm.discountOrigin == .loyalty ? AppTheme.danger : AppTheme.success)
+                            .cornerRadius(AppTheme.r12)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(vm.isApplyingLoyaltyRedemption || (vm.discountOrigin != .loyalty && vm.loyaltyPointsToRedeem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+                    }
+
+                    if let loyaltyRedemption = vm.loyaltyRedemption, vm.discountOrigin == .loyalty {
+                        Text(loyaltyRedemption.message ?? l10n.pointsRedeemed)
+                            .font(AppTheme.caption(12))
+                            .foregroundColor(AppTheme.success)
+                    }
+                }
             }
 
             if !vm.customerInsights.isEmpty {
@@ -738,6 +789,14 @@ struct PaymentView: View {
         guard let order = await vm.placeOrder() else {
             isPlacing = false
             return
+        }
+
+        if vm.discountOrigin == .loyalty {
+            let redeemed = await vm.commitLoyaltyRedemption(orderId: order.id)
+            guard redeemed else {
+                isPlacing = false
+                return
+            }
         }
 
         var success = false

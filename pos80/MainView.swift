@@ -36,6 +36,12 @@ struct MainView: View {
                         } else {
                             ReportsUnavailableView()
                         }
+                    case .inventory:    InventoryView()
+                    case .kds:          KDSView()
+                    case .reservations: ReservationsView()
+                    case .delivery:     DeliveryView()
+                    case .coupons:      CouponsView()
+                    case .schedules:    StaffScheduleView()
                     case .settings: SettingsView()
                     }
                 }
@@ -454,20 +460,7 @@ struct MainView: View {
                     // Navigation items
                     VStack(spacing: 4) {
                         ForEach(Array(MainTab.allCases.enumerated()), id: \.element) { index, tab in
-                            SidebarItem(
-                                tab: tab,
-                                isSelected: appState.selectedTab == tab,
-                                badge: tab == .pos && posVM.cartCount > 0
-                                    ? "\(posVM.cartCount)"
-                                    : tab == .settings && appState.unreadBroadcastCount > 0
-                                        ? "\(appState.unreadBroadcastCount)"
-                                        : nil
-                            ) {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    appState.selectedTab = tab
-                                }
-                            }
-                            .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+                            sidebarItem(for: tab, index: index)
                         }
                     }
                     .compatKeyboardShortcutsTip()
@@ -518,6 +511,35 @@ struct MainView: View {
                 .fill(AppTheme.border)
                 .frame(width: 1)
         }
+    }
+
+    @ViewBuilder
+    private func sidebarItem(for tab: MainTab, index: Int) -> some View {
+        let item = SidebarItem(
+            tab: tab,
+            isSelected: appState.selectedTab == tab,
+            badge: tab == .pos && posVM.cartCount > 0
+                ? "\(posVM.cartCount)"
+                : tab == .settings && appState.unreadBroadcastCount > 0
+                    ? "\(appState.unreadBroadcastCount)"
+                    : nil
+        ) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                appState.selectedTab = tab
+            }
+        }
+
+        if let shortcut = sidebarShortcut(for: index) {
+            item.keyboardShortcut(KeyEquivalent(shortcut), modifiers: .command)
+        } else {
+            item
+        }
+    }
+
+    private func sidebarShortcut(for index: Int) -> Character? {
+        let shortcuts: [Character] = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
+        guard shortcuts.indices.contains(index) else { return nil }
+        return shortcuts[index]
     }
 }
 

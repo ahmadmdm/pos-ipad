@@ -316,6 +316,14 @@ struct POSView: View {
                                 Label("Customize", systemImage: "slider.horizontal.3")
                             }
                         }
+                        if appState.currentUser?.isManager ?? false {
+                            Button {
+                                Task { await vm.toggleAvailability(for: product) }
+                            } label: {
+                                Label(product.isAvailable ?? true ? l10n.markUnavailable : l10n.markAvailable,
+                                      systemImage: product.isAvailable ?? true ? "eye.slash.fill" : "eye.fill")
+                            }
+                        }
                     }
                 }
             }
@@ -324,6 +332,10 @@ struct POSView: View {
     }
 
     private func handleProductTap(_ product: Product) {
+        if product.isAvailable == false {
+            appState.showError(l10n.productUnavailable)
+            return
+        }
         if vm.productNeedsModifiers(product) {
             vm.modifierProduct = product
             vm.showModifierSheet = true
@@ -644,6 +656,8 @@ struct ProductCard: View {
     let onTap: () -> Void
     @State private var isPressed = false
 
+    private var isAvailable: Bool { product.isAvailable ?? true }
+
     var body: some View {
         Button(action: {
             isPressed = true
@@ -679,6 +693,18 @@ struct ProductCard: View {
                             .cornerRadius(6)
                             .padding(6)
                     }
+
+                    if !isAvailable {
+                        Text("86")
+                            .font(AppTheme.caption(10))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(AppTheme.danger)
+                            .cornerRadius(6)
+                            .padding(.top, 34)
+                            .padding(.trailing, 6)
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -697,7 +723,7 @@ struct ProductCard: View {
                     HStack {
                         Text(product.price.sarFormatted)
                             .font(AppTheme.mono(14))
-                            .foregroundColor(AppTheme.accent)
+                            .foregroundColor(isAvailable ? AppTheme.accent : AppTheme.textMuted)
                         Spacer()
                         if !(product.modifiers?.isEmpty ?? true) {
                             Image(systemName: "slider.horizontal.3")
@@ -710,6 +736,7 @@ struct ProductCard: View {
                 .padding(.vertical, 10)
             }
             .background(AppTheme.card)
+            .opacity(isAvailable ? 1 : 0.65)
             .cornerRadius(AppTheme.r16)
             .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
                 .strokeBorder(AppTheme.border, lineWidth: 1))

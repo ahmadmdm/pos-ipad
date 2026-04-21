@@ -14,6 +14,11 @@ struct TokenResponse: Codable {
     let tenantSlug: String?
     let tenantName: String?
     let tenantNameAr: String?
+    let vatNumber: String?
+    let branchId: String?
+    let permissions: [String]
+    let twoFaRequired: Bool?
+    let pendingToken: String?
 
     enum CodingKeys: String, CodingKey {
         case accessToken = "access_token"
@@ -25,6 +30,55 @@ struct TokenResponse: Codable {
         case tenantSlug = "tenant_slug"
         case tenantName = "tenant_name"
         case tenantNameAr = "tenant_name_ar"
+        case vatNumber = "vat_number"
+        case branchId = "branch_id"
+        case permissions
+        case twoFaRequired = "2fa_required"
+        case pendingToken = "pending_token"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        accessToken = (try? c.decode(String.self, forKey: .accessToken)) ?? ""
+        refreshToken = (try? c.decode(String.self, forKey: .refreshToken)) ?? ""
+        tokenType = (try? c.decode(String.self, forKey: .tokenType)) ?? "bearer"
+        userId = (try? c.decode(String.self, forKey: .userId)) ?? ""
+        role = (try? c.decode(String.self, forKey: .role)) ?? ""
+        nameEn = (try? c.decode(String.self, forKey: .nameEn)) ?? ""
+        nameAr = (try? c.decode(String.self, forKey: .nameAr)) ?? ""
+        tenantId = try? c.decode(String.self, forKey: .tenantId)
+        tenantSlug = try? c.decode(String.self, forKey: .tenantSlug)
+        tenantName = try? c.decode(String.self, forKey: .tenantName)
+        tenantNameAr = try? c.decode(String.self, forKey: .tenantNameAr)
+        vatNumber = try? c.decode(String.self, forKey: .vatNumber)
+        branchId = try? c.decode(String.self, forKey: .branchId)
+        permissions = (try? c.decode([String].self, forKey: .permissions)) ?? []
+        twoFaRequired = try? c.decode(Bool.self, forKey: .twoFaRequired)
+        pendingToken = try? c.decode(String.self, forKey: .pendingToken)
+    }
+}
+
+// MARK: - 2FA
+struct Verify2FARequest: Codable {
+    let totpCode: String
+    enum CodingKeys: String, CodingKey { case totpCode = "totp_code" }
+}
+
+struct TwoFASetupResponse: Codable {
+    let provisioningUri: String?
+    let secret: String?
+    enum CodingKeys: String, CodingKey {
+        case provisioningUri = "provisioning_uri"
+        case secret
+    }
+}
+
+struct ChangePasswordRequest: Codable {
+    let currentPassword: String
+    let newPassword: String
+    enum CodingKeys: String, CodingKey {
+        case currentPassword = "current_password"
+        case newPassword = "new_password"
     }
 }
 
@@ -1011,4 +1065,816 @@ struct SplitEntry: Codable {
 
 struct SplitPaymentRequest: Codable {
     let splits: [SplitEntry]
+}
+
+// MARK: - User Role
+enum UserRole: String, Codable, CaseIterable {
+    case super_admin, owner, manager, accountant, cashier, waiter, kitchen
+
+    var displayName: String {
+        switch self {
+        case .super_admin: return "Super Admin"
+        case .owner: return "Owner"
+        case .manager: return "Manager"
+        case .accountant: return "Accountant"
+        case .cashier: return "Cashier"
+        case .waiter: return "Waiter"
+        case .kitchen: return "Kitchen"
+        }
+    }
+}
+
+// MARK: - Staff CRUD
+struct StaffCreate: Codable {
+    let nameAr: String
+    let nameEn: String
+    let email: String
+    let password: String
+    let role: String
+    let phone: String?
+    let branchId: String?
+    let pin: String?
+
+    enum CodingKeys: String, CodingKey {
+        case nameAr = "name_ar", nameEn = "name_en"
+        case email, password, role, phone
+        case branchId = "branch_id"
+        case pin
+    }
+}
+
+struct StaffUpdate: Codable {
+    let nameAr: String?
+    let nameEn: String?
+    let role: String?
+    let isActive: Bool?
+    let phone: String?
+    let branchId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case nameAr = "name_ar", nameEn = "name_en"
+        case role
+        case isActive = "is_active"
+        case phone
+        case branchId = "branch_id"
+    }
+}
+
+struct PinUpdate: Codable {
+    let pin: String
+}
+
+// MARK: - Order Status Update
+struct StatusUpdate: Codable {
+    let status: String
+}
+
+// MARK: - Menu CRUD
+struct CategoryCreate: Codable {
+    let nameAr: String
+    let nameEn: String
+    let descriptionAr: String?
+    let descriptionEn: String?
+    let imageUrl: String?
+    let sortOrder: Int
+
+    enum CodingKeys: String, CodingKey {
+        case nameAr = "name_ar", nameEn = "name_en"
+        case descriptionAr = "description_ar", descriptionEn = "description_en"
+        case imageUrl = "image_url"
+        case sortOrder = "sort_order"
+    }
+}
+
+struct ProductCreate: Codable {
+    let nameAr: String
+    let nameEn: String
+    let descriptionAr: String?
+    let descriptionEn: String?
+    let price: Double
+    let costPrice: Double?
+    let sku: String?
+    let barcode: String?
+    let imageUrl: String?
+    let categoryId: String
+    let isTaxable: Bool
+    let prepTimeMinutes: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case nameAr = "name_ar", nameEn = "name_en"
+        case descriptionAr = "description_ar", descriptionEn = "description_en"
+        case price
+        case costPrice = "cost_price"
+        case sku, barcode
+        case imageUrl = "image_url"
+        case categoryId = "category_id"
+        case isTaxable = "is_taxable"
+        case prepTimeMinutes = "prep_time_minutes"
+    }
+}
+
+struct MenuImportResult: Codable {
+    let created: Int?
+    let skipped: Int?
+    let errors: [String]?
+}
+
+struct ModifierCreateFull: Codable {
+    let nameAr: String
+    let nameEn: String
+    let isRequired: Bool
+    let minSelections: Int
+    let maxSelections: Int
+    let options: [ModifierOptionCreate]
+
+    enum CodingKeys: String, CodingKey {
+        case nameAr = "name_ar", nameEn = "name_en"
+        case isRequired = "is_required"
+        case minSelections = "min_selections"
+        case maxSelections = "max_selections"
+        case options
+    }
+}
+
+struct ModifierOptionCreate: Codable {
+    let nameAr: String
+    let nameEn: String
+    let priceDelta: Double
+    let isDefault: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case nameAr = "name_ar", nameEn = "name_en"
+        case priceDelta = "price_delta"
+        case isDefault = "is_default"
+    }
+}
+
+// MARK: - Tables CRUD
+struct TableCreate: Codable {
+    let number: String
+    let nameAr: String?
+    let nameEn: String?
+    let capacity: Int
+    let section: String?
+    let posX: Double?
+    let posY: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case number
+        case nameAr = "name_ar", nameEn = "name_en"
+        case capacity, section
+        case posX = "pos_x", posY = "pos_y"
+    }
+}
+
+struct TableUpdate: Codable {
+    let number: String?
+    let nameAr: String?
+    let nameEn: String?
+    let capacity: Int?
+    let section: String?
+
+    enum CodingKeys: String, CodingKey {
+        case number
+        case nameAr = "name_ar", nameEn = "name_en"
+        case capacity, section
+    }
+}
+
+struct TablePositionUpdate: Codable {
+    let posX: Double
+    let posY: Double
+    enum CodingKeys: String, CodingKey { case posX = "pos_x", posY = "pos_y" }
+}
+
+// MARK: - Coupons CRUD
+struct Coupon: Codable, Identifiable {
+    let id: String
+    let code: String
+    let value: Double
+    let description: String?
+    let minOrderValue: Double?
+    let maxDiscountAmount: Double?
+    let maxUses: Int?
+    let usedCount: Int?
+    let validFrom: String?
+    let validUntil: String?
+    let isActive: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id, code, value, description
+        case minOrderValue = "min_order_value"
+        case maxDiscountAmount = "max_discount_amount"
+        case maxUses = "max_uses"
+        case usedCount = "used_count"
+        case validFrom = "valid_from"
+        case validUntil = "valid_until"
+        case isActive = "is_active"
+    }
+}
+
+struct CouponCreate: Codable {
+    let code: String
+    let value: Double
+    let description: String?
+    let minOrderValue: Double
+    let maxDiscountAmount: Double?
+    let maxUses: Int?
+    let validFrom: String?
+    let validUntil: String?
+
+    enum CodingKeys: String, CodingKey {
+        case code, value, description
+        case minOrderValue = "min_order_value"
+        case maxDiscountAmount = "max_discount_amount"
+        case maxUses = "max_uses"
+        case validFrom = "valid_from"
+        case validUntil = "valid_until"
+    }
+}
+
+struct CouponUpdate: Codable {
+    let description: String?
+    let isActive: Bool?
+    let minOrderValue: Double?
+    let maxDiscountAmount: Double?
+    let maxUses: Int?
+    let validFrom: String?
+    let validUntil: String?
+    let value: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case description
+        case isActive = "is_active"
+        case minOrderValue = "min_order_value"
+        case maxDiscountAmount = "max_discount_amount"
+        case maxUses = "max_uses"
+        case validFrom = "valid_from"
+        case validUntil = "valid_until"
+        case value
+    }
+}
+
+// MARK: - Loyalty Full
+struct LoyaltySettings: Codable {
+    let isEnabled: Bool?
+    let pointsPerSar: Int?
+    let redemptionRatio: Int?
+    let minPointsToRedeem: Int?
+    let maxRedemptionPct: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case isEnabled = "is_enabled"
+        case pointsPerSar = "points_per_sar"
+        case redemptionRatio = "redemption_ratio"
+        case minPointsToRedeem = "min_points_to_redeem"
+        case maxRedemptionPct = "max_redemption_pct"
+    }
+}
+
+struct LoyaltySettingsUpdate: Codable {
+    let isEnabled: Bool?
+    let pointsPerSar: Int?
+    let redemptionRatio: Int?
+    let minPointsToRedeem: Int?
+    let maxRedemptionPct: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case isEnabled = "is_enabled"
+        case pointsPerSar = "points_per_sar"
+        case redemptionRatio = "redemption_ratio"
+        case minPointsToRedeem = "min_points_to_redeem"
+        case maxRedemptionPct = "max_redemption_pct"
+    }
+}
+
+struct CustomerCreate: Codable {
+    let name: String
+    let phone: String
+    let email: String?
+}
+
+struct EarnRequest: Codable {
+    let customerId: String
+    let orderId: String?
+    let totalAmount: Double
+
+    enum CodingKeys: String, CodingKey {
+        case customerId = "customer_id"
+        case orderId = "order_id"
+        case totalAmount = "total_amount"
+    }
+}
+
+struct RedeemRequest: Codable {
+    let customerId: String
+    let orderId: String?
+    let points: Int
+
+    enum CodingKeys: String, CodingKey {
+        case customerId = "customer_id"
+        case orderId = "order_id"
+        case points
+    }
+}
+
+struct PointsAdjust: Codable {
+    let pointsDelta: Int
+    let note: String?
+    enum CodingKeys: String, CodingKey {
+        case pointsDelta = "points_delta"
+        case note
+    }
+}
+
+struct LoyaltyTransaction: Codable, Identifiable {
+    let id: String
+    let customerId: String?
+    let type: String?
+    let points: Int?
+    let orderId: String?
+    let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case customerId = "customer_id"
+        case type, points
+        case orderId = "order_id"
+        case createdAt = "created_at"
+    }
+}
+
+struct RedemptionValidation: Codable {
+    let valid: Bool
+    let discountAmount: Double?
+    let message: String?
+
+    enum CodingKeys: String, CodingKey {
+        case valid
+        case discountAmount = "discount_amount"
+        case message
+    }
+}
+
+// MARK: - Inventory
+struct RawMaterial: Codable, Identifiable {
+    let id: String
+    let nameAr: String
+    let nameEn: String
+    let unit: String
+    let currentStock: Double?
+    let lowStockThreshold: Double?
+    let costPerUnit: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case nameAr = "name_ar", nameEn = "name_en"
+        case unit
+        case currentStock = "current_stock"
+        case lowStockThreshold = "low_stock_threshold"
+        case costPerUnit = "cost_per_unit"
+    }
+}
+
+struct RawMaterialCreate: Codable {
+    let nameAr: String
+    let nameEn: String
+    let unit: String
+    let currentStock: Double
+    let lowStockThreshold: Double?
+    let costPerUnit: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case nameAr = "name_ar", nameEn = "name_en"
+        case unit
+        case currentStock = "current_stock"
+        case lowStockThreshold = "low_stock_threshold"
+        case costPerUnit = "cost_per_unit"
+    }
+}
+
+struct StockAdjustment: Codable {
+    let quantityChange: Double
+    let movementType: String
+    let notes: String?
+
+    enum CodingKeys: String, CodingKey {
+        case quantityChange = "quantity_change"
+        case movementType = "movement_type"
+        case notes
+    }
+}
+
+struct StockMovement: Codable, Identifiable {
+    var id: String { "\(createdAt ?? UUID().uuidString)-\(quantity)" }
+    let quantity: Double
+    let movementType: String?
+    let notes: String?
+    let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case quantity
+        case movementType = "movement_type"
+        case notes
+        case createdAt = "created_at"
+    }
+}
+
+struct RecipeIngredientIn: Codable {
+    let rawMaterialId: String
+    let quantity: Double
+    enum CodingKeys: String, CodingKey {
+        case rawMaterialId = "raw_material_id"
+        case quantity
+    }
+}
+
+struct RecipeUpsert: Codable {
+    let yieldQuantity: Double
+    let notes: String?
+    let ingredients: [RecipeIngredientIn]
+    enum CodingKeys: String, CodingKey {
+        case yieldQuantity = "yield_quantity"
+        case notes, ingredients
+    }
+}
+
+struct Recipe: Codable {
+    let productId: String?
+    let yieldQuantity: Double?
+    let notes: String?
+    let ingredients: [RecipeIngredient]?
+
+    enum CodingKeys: String, CodingKey {
+        case productId = "product_id"
+        case yieldQuantity = "yield_quantity"
+        case notes, ingredients
+    }
+}
+
+struct RecipeIngredient: Codable, Identifiable {
+    var id: String { rawMaterialId ?? UUID().uuidString }
+    let rawMaterialId: String?
+    let materialName: String?
+    let quantity: Double?
+    let unit: String?
+
+    enum CodingKeys: String, CodingKey {
+        case rawMaterialId = "raw_material_id"
+        case materialName = "material_name"
+        case quantity, unit
+    }
+}
+
+struct BatchCreate: Codable {
+    let rawMaterialId: String
+    let quantity: Double
+    let costPerUnit: Double?
+    let batchNumber: String?
+    let expiryDate: String?
+
+    enum CodingKeys: String, CodingKey {
+        case rawMaterialId = "raw_material_id"
+        case quantity
+        case costPerUnit = "cost_per_unit"
+        case batchNumber = "batch_number"
+        case expiryDate = "expiry_date"
+    }
+}
+
+struct InventoryBatch: Codable, Identifiable {
+    let id: String
+    let rawMaterialId: String?
+    let materialName: String?
+    let quantity: Double?
+    let batchNumber: String?
+    let expiryDate: String?
+    let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case rawMaterialId = "raw_material_id"
+        case materialName = "material_name"
+        case quantity
+        case batchNumber = "batch_number"
+        case expiryDate = "expiry_date"
+        case createdAt = "created_at"
+    }
+}
+
+// MARK: - KDS
+struct BumpOrder: Codable {
+    let status: String
+}
+
+// MARK: - Kitchen Stations
+struct KitchenStation: Codable, Identifiable {
+    let id: String
+    let nameEn: String
+    let nameAr: String
+    let branchId: String?
+    let categoryIds: [String]?
+    let isActive: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case nameEn = "name_en", nameAr = "name_ar"
+        case branchId = "branch_id"
+        case categoryIds = "category_ids"
+        case isActive = "is_active"
+    }
+}
+
+struct StationCreate: Codable {
+    let nameEn: String
+    let nameAr: String
+    let branchId: String
+    let categoryIds: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case nameEn = "name_en", nameAr = "name_ar"
+        case branchId = "branch_id"
+        case categoryIds = "category_ids"
+    }
+}
+
+struct StationUpdate: Codable {
+    let nameEn: String?
+    let nameAr: String?
+    let categoryIds: [String]?
+    let isActive: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case nameEn = "name_en", nameAr = "name_ar"
+        case categoryIds = "category_ids"
+        case isActive = "is_active"
+    }
+}
+
+// MARK: - Reservations
+enum ReservationStatus: String, Codable, CaseIterable {
+    case pending, confirmed, seated, completed, cancelled, no_show
+
+    var displayName: String { rawValue.replacingOccurrences(of: "_", with: " ").capitalized }
+}
+
+struct Reservation: Codable, Identifiable {
+    let id: String
+    let customerName: String?
+    let customerPhone: String?
+    let reservationDate: String?
+    let reservationTime: String?
+    let partySize: Int?
+    let tableId: String?
+    let notes: String?
+    let status: String?
+    let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case customerName = "customer_name"
+        case customerPhone = "customer_phone"
+        case reservationDate = "reservation_date"
+        case reservationTime = "reservation_time"
+        case partySize = "party_size"
+        case tableId = "table_id"
+        case notes, status
+        case createdAt = "created_at"
+    }
+}
+
+struct ReservationCreate: Codable {
+    let customerName: String
+    let customerPhone: String
+    let reservationDate: String
+    let reservationTime: String
+    let partySize: Int
+    let tableId: String?
+    let notes: String?
+
+    enum CodingKeys: String, CodingKey {
+        case customerName = "customer_name"
+        case customerPhone = "customer_phone"
+        case reservationDate = "reservation_date"
+        case reservationTime = "reservation_time"
+        case partySize = "party_size"
+        case tableId = "table_id"
+        case notes
+    }
+}
+
+struct ReservationUpdate: Codable {
+    let status: String?
+    let tableId: String?
+    let reservationTime: String?
+    let partySize: Int?
+    let notes: String?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case tableId = "table_id"
+        case reservationTime = "reservation_time"
+        case partySize = "party_size"
+        case notes
+    }
+}
+
+// MARK: - Delivery
+struct DeliveryPartner: Codable, Identifiable {
+    let id: String
+    let name: String
+    let phone: String?
+    let vehicleLabel: String?
+    let isActive: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, phone
+        case vehicleLabel = "vehicle_label"
+        case isActive = "is_active"
+    }
+}
+
+struct DeliveryPartnerCreate: Codable {
+    let name: String
+    let phone: String?
+    let vehicleLabel: String?
+    enum CodingKeys: String, CodingKey {
+        case name, phone
+        case vehicleLabel = "vehicle_label"
+    }
+}
+
+struct DeliveryPartnerUpdate: Codable {
+    let name: String?
+    let phone: String?
+    let vehicleLabel: String?
+    let isActive: Bool?
+    enum CodingKeys: String, CodingKey {
+        case name, phone
+        case vehicleLabel = "vehicle_label"
+        case isActive = "is_active"
+    }
+}
+
+struct DeliveryOrder: Codable, Identifiable {
+    let id: String
+    let orderId: String?
+    let deliveryAddress: String?
+    let deliveryFee: Double?
+    let deliveryPartnerId: String?
+    let deliveryStatus: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case orderId = "order_id"
+        case deliveryAddress = "delivery_address"
+        case deliveryFee = "delivery_fee"
+        case deliveryPartnerId = "delivery_partner_id"
+        case deliveryStatus = "delivery_status"
+    }
+}
+
+struct DeliveryOrderUpdate: Codable {
+    let deliveryAddress: String?
+    let deliveryFee: Double?
+    let deliveryPartnerId: String?
+    let deliveryStatus: String?
+
+    enum CodingKeys: String, CodingKey {
+        case deliveryAddress = "delivery_address"
+        case deliveryFee = "delivery_fee"
+        case deliveryPartnerId = "delivery_partner_id"
+        case deliveryStatus = "delivery_status"
+    }
+}
+
+// MARK: - Staff Schedules
+struct StaffSchedule: Codable, Identifiable {
+    let id: String
+    let branchId: String
+    let userId: String
+    let scheduleDate: String
+    let shiftStart: String
+    let shiftEnd: String
+    let isDayOff: Bool
+    let notes: String?
+    let staffName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case branchId = "branch_id"
+        case userId = "user_id"
+        case scheduleDate = "schedule_date"
+        case shiftStart = "shift_start"
+        case shiftEnd = "shift_end"
+        case isDayOff = "is_day_off"
+        case notes
+        case staffName = "staff_name"
+    }
+}
+
+struct ScheduleCreate: Codable {
+    let branchId: String
+    let userId: String
+    let scheduleDate: String
+    let shiftStart: String
+    let shiftEnd: String
+    let isDayOff: Bool
+    let notes: String?
+
+    enum CodingKeys: String, CodingKey {
+        case branchId = "branch_id"
+        case userId = "user_id"
+        case scheduleDate = "schedule_date"
+        case shiftStart = "shift_start"
+        case shiftEnd = "shift_end"
+        case isDayOff = "is_day_off"
+        case notes
+    }
+}
+
+struct ScheduleUpdate: Codable {
+    let shiftStart: String?
+    let shiftEnd: String?
+    let isDayOff: Bool?
+    let notes: String?
+
+    enum CodingKeys: String, CodingKey {
+        case shiftStart = "shift_start"
+        case shiftEnd = "shift_end"
+        case isDayOff = "is_day_off"
+        case notes
+    }
+}
+
+// MARK: - Reports (new)
+struct DailyReport: Codable {
+    let reportDate: String?
+    let totalRevenue: Double?
+    let totalOrders: Int?
+    let totalVat: Double?
+    let totalDiscounts: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case reportDate = "report_date"
+        case totalRevenue = "total_revenue"
+        case totalOrders = "total_orders"
+        case totalVat = "total_vat"
+        case totalDiscounts = "total_discounts"
+    }
+}
+
+struct MonthlyReport: Codable {
+    let year: Int?
+    let month: Int?
+    let totalRevenue: Double?
+    let totalOrders: Int?
+    let totalVat: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case year, month
+        case totalRevenue = "total_revenue"
+        case totalOrders = "total_orders"
+        case totalVat = "total_vat"
+    }
+}
+
+struct ProfitabilityRow: Codable, Identifiable {
+    var id: String { productId ?? UUID().uuidString }
+    let productId: String?
+    let nameEn: String?
+    let nameAr: String?
+    let totalRevenue: Double?
+    let totalCost: Double?
+    let profit: Double?
+    let marginPct: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case productId = "product_id"
+        case nameEn = "name_en", nameAr = "name_ar"
+        case totalRevenue = "total_revenue"
+        case totalCost = "total_cost"
+        case profit
+        case marginPct = "margin_pct"
+    }
+}
+
+// MARK: - Subscription
+struct SubscriptionInfo: Codable {
+    let plan: String?
+    let status: String?
+    let expiresAt: String?
+    let maxBranches: Int?
+    let maxStaff: Int?
+    let usedBranches: Int?
+    let usedStaff: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case plan, status
+        case expiresAt = "expires_at"
+        case maxBranches = "max_branches"
+        case maxStaff = "max_staff"
+        case usedBranches = "used_branches"
+        case usedStaff = "used_staff"
+    }
 }

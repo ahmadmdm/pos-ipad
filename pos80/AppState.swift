@@ -97,6 +97,10 @@ final class AppState: ObservableObject {
     // MARK: Spotlight deep-link
     @Published var spotlightOrderId: String?
 
+    // MARK: 2FA
+    @Published var pending2FAToken: String?
+    @Published var show2FAPrompt = false
+
     // MARK: Biometric Lock
     @Published var isBiometricEnabled: Bool = UserDefaults.standard.bool(forKey: "biometric_lock_enabled") {
         didSet { UserDefaults.standard.set(isBiometricEnabled, forKey: "biometric_lock_enabled") }
@@ -148,15 +152,13 @@ final class AppState: ObservableObject {
         errorMessage = nil
         do {
             let token = try await api.login(email: email, password: password)
-            api.accessToken = token.accessToken
-            api.refreshToken = token.refreshToken
-            api.tenantSlug = token.tenantSlug
-            api.cacheAuthenticatedTenant(from: token)
-            currentUser = CurrentUser(from: token)
-            await loadInitialData()
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
-                destination = .main
+            if token.twoFaRequired == true, let pendingToken = token.pendingToken {
+                pending2FAToken = pendingToken
+                show2FAPrompt = true
+                isLoading = false
+                return
             }
+            completeLogin(token)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -168,22 +170,48 @@ final class AppState: ObservableObject {
         errorMessage = nil
         do {
             let token = try await api.loginWithPIN(email: email, pin: pin)
-            api.accessToken = token.accessToken
-            api.refreshToken = token.refreshToken
-            api.tenantSlug = token.tenantSlug
-            api.cacheAuthenticatedTenant(from: token)
-            currentUser = CurrentUser(from: token)
-            await loadInitialData()
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
-                destination = .main
+            if token.twoFaRequired == true, let pendingToken = token.pendingToken {
+                pending2FAToken = pendingToken
+                show2FAPrompt = true
+                isLoading = false
+                return
             }
+            completeLogin(token)
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoading = false
     }
 
+    func validate2FA(code: String) async {
+        guard let pendingToken = pending2FAToken else { return }
+        isLoading = true
+        errorMessage = nil
+        do {
+            let token = try await api.validate2FA(Verify2FARequest(totpCode: code), pendingToken: pendingToken)
+            pending2FAToken = nil
+            show2FAPrompt = false
+            completeLogin(token)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
+    }
+
+    private func completeLogin(_ token: TokenResponse) {
+        api.accessToken = token.accessToken
+        api.refreshToken = token.refreshToken
+        api.tenantSlug = token.tenantSlug
+        api.cacheAuthenticatedTenant(from: token)
+        currentUser = CurrentUser(from: token)
+        Task { await loadInitialData() }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
+            destination = .main
+        }
+    }
+
     func logout() {
+        Task { try? await api.logoutServer() }
         api.logout()
         currentUser = nil
         currentShift = nil
@@ -378,6 +406,8 @@ struct CurrentUser: Codable {
     let role: String
     let tenantId: String?
     let tenantSlug: String?
+    let branchId: String?
+    let permissions: [String]
 
     init(from token: TokenResponse) {
         userId = token.userId
@@ -386,6 +416,8 @@ struct CurrentUser: Codable {
         role = token.role
         tenantId = token.tenantId
         tenantSlug = token.tenantSlug
+        branchId = token.branchId
+        permissions = token.permissions
     }
 
     var isManager: Bool { role == "manager" || role == "owner" || role == "super_admin" }
@@ -411,21 +443,33 @@ struct ManagerApprovalEntry: Codable, Identifiable {
 
 // MARK: - Main Tabs
 enum MainTab: String, CaseIterable {
-    case pos      = "POS"
-    case orders   = "Orders"
-    case tables   = "Tables"
-    case shift    = "Shift"
-    case reports  = "Reports"
-    case settings = "Settings"
+    case pos          = "POS"
+    case orders       = "Orders"
+    case tables       = "Tables"
+    case shift        = "Shift"
+    case reports      = "Reports"
+    case inventory    = "Inventory"
+    case kds          = "KDS"
+    case reservations = "Reservations"
+    case delivery     = "Delivery"
+    case coupons      = "Coupons"
+    case schedules    = "Schedules"
+    case settings     = "Settings"
 
     var icon: String {
         switch self {
-        case .pos:      return "cart.fill"
-        case .orders:   return "list.bullet.clipboard.fill"
-        case .tables:   return "table.furniture.fill"
-        case .shift:    return "clock.badge.fill"
-        case .reports:  return "chart.bar.xaxis"
-        case .settings: return "gearshape.2.fill"
+        case .pos:          return "cart.fill"
+        case .orders:       return "list.bullet.clipboard.fill"
+        case .tables:       return "table.furniture.fill"
+        case .shift:        return "clock.badge.fill"
+        case .reports:      return "chart.bar.xaxis"
+        case .inventory:    return "shippingbox.fill"
+        case .kds:          return "flame.fill"
+        case .reservations: return "calendar.badge.clock"
+        case .delivery:     return "bicycle"
+        case .coupons:      return "ticket.fill"
+        case .schedules:    return "person.badge.clock.fill"
+        case .settings:     return "gearshape.2.fill"
         }
     }
 

@@ -1,5 +1,7 @@
 // SettingsView.swift — App configuration & staff management
 import SwiftUI
+import CoreImage
+import UniformTypeIdentifiers
 
 private enum AppInfo {
     static var version: String {
@@ -106,6 +108,8 @@ struct SettingsView: View {
                     case .printer:   PrinterSettingsSection(settings: $settings)
                     case .tax:       TaxSettingsSection(settings: $settings)
                     case .staff:     StaffSettingsSection(staff: $staff)
+                    case .security:  SecuritySettingsSection()
+                    case .subscription: SubscriptionSettingsSection()
                     case .about:     AboutSection()
                     }
                 }
@@ -140,6 +144,8 @@ enum SettingsSection: String, CaseIterable {
     case printer  = "Printer"
     case tax      = "Tax & Compliance"
     case staff    = "Staff"
+    case security = "Security & Auth"
+    case subscription = "Subscription"
     case about    = "About"
 
     var localizedName: String {
@@ -151,6 +157,8 @@ enum SettingsSection: String, CaseIterable {
         case .printer: return l.printer
         case .tax:     return l.taxCompliance
         case .staff:   return l.staff
+        case .security: return l.twoFactorAuth
+        case .subscription: return l.subscription
         case .about:   return l.about
         }
     }
@@ -163,6 +171,8 @@ enum SettingsSection: String, CaseIterable {
         case .printer: return "printer.fill"
         case .tax:     return "percent"
         case .staff:   return "person.2.fill"
+        case .security: return "lock.shield.fill"
+        case .subscription: return "creditcard.fill"
         case .about:   return "info.circle.fill"
         }
     }
@@ -175,6 +185,8 @@ enum SettingsSection: String, CaseIterable {
         case .printer: return AppTheme.success
         case .tax:     return AppTheme.warning
         case .staff:   return AppTheme.danger
+        case .security: return AppTheme.accent2
+        case .subscription: return AppTheme.info
         case .about:   return AppTheme.textSecondary
         }
     }
@@ -470,6 +482,10 @@ struct GeneralSettingsSection: View {
     @EnvironmentObject var appState: AppState
     private let l10n = L10n.shared
     @State private var apiURL: String = APIConfig.baseURL
+    @State private var showMenuImporter = false
+    @State private var isImportingMenu = false
+    @State private var showShareSheet = false
+    @State private var shareItems: [Any] = []
 
     private var apiURLWarning: String? {
         let candidate = apiURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -649,6 +665,88 @@ struct GeneralSettingsSection: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
+        }
+
+        SettingsCard(title: "Menu Import", subtitle: "Excel template and import", icon: "tablecells.badge.ellipsis", color: AppTheme.info) {
+            HStack {
+                Button {
+                    Task { await downloadMenuTemplate() }
+                } label: {
+                    Text("Download Template")
+                        .font(AppTheme.caption(13))
+                        .foregroundColor(AppTheme.info)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(AppTheme.info.opacity(0.12))
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Button {
+                    showMenuImporter = true
+                } label: {
+                    HStack(spacing: 6) {
+                        if isImportingMenu {
+                            ProgressView().tint(.white).scaleEffect(0.7)
+                        }
+                        Text("Import Excel")
+                            .font(AppTheme.caption(13))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(AppTheme.accent)
+                    .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+                .disabled(isImportingMenu)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+        }
+        .fileImporter(isPresented: $showMenuImporter, allowedContentTypes: [UTType.data], allowsMultipleSelection: false) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                Task { await importMenu(from: url) }
+            case .failure(let error):
+                appState.showError(error.localizedDescription)
+            }
+        }
+        .sheet(isPresented: $showShareSheet) {
+            ShareSheet(items: shareItems)
+        }
+    }
+
+    private func downloadMenuTemplate() async {
+        do {
+            let data = try await APIService.shared.downloadMenuImportTemplate()
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("menu-import-template.xlsx")
+            try data.write(to: url)
+            shareItems = [url]
+            showShareSheet = true
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func importMenu(from url: URL) async {
+        isImportingMenu = true
+        defer { isImportingMenu = false }
+        do {
+            let access = url.startAccessingSecurityScopedResource()
+            defer {
+                if access { url.stopAccessingSecurityScopedResource() }
+            }
+            let data = try Data(contentsOf: url)
+            let result = try await APIService.shared.importMenuExcel(fileData: data, filename: url.lastPathComponent)
+            let errors = result.errors ?? []
+            let message = "Created: \(result.created ?? 0), Skipped: \(result.skipped ?? 0)" + (errors.isEmpty ? "" : "\n" + errors.prefix(3).joined(separator: "\n"))
+            appState.showSuccess(message)
+        } catch {
+            appState.showError(error.localizedDescription)
         }
     }
 }
@@ -977,12 +1075,19 @@ struct TaxSettingsSection: View {
 // MARK: - Staff Settings
 struct StaffSettingsSection: View {
     @Binding var staff: [Staff]
+    @EnvironmentObject var appState: AppState
+    private let api = APIService.shared
+    private let l10n = L10n.shared
     @State private var showAddSheet = false
+    @State private var editingStaff: Staff?
+    @State private var resettingPINFor: Staff?
+    @State private var shiftHistoryFor: Staff?
+    @State private var isBusy = false
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Staff Members")
+                Text(l10n.staff)
                     .font(AppTheme.headline())
                     .foregroundColor(AppTheme.textPrimary)
                 Spacer()
@@ -991,7 +1096,7 @@ struct StaffSettingsSection: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "plus")
-                        Text("Add Staff")
+                        Text(l10n.addStaff)
                     }
                     .font(AppTheme.caption(13))
                     .foregroundColor(.white)
@@ -1019,7 +1124,15 @@ struct StaffSettingsSection: View {
             } else {
                 VStack(spacing: 0) {
                     ForEach(staff) { member in
-                        StaffRow(member: member)
+                        StaffRow(member: member) {
+                            editingStaff = member
+                        } onDelete: {
+                            Task { await deleteStaff(member) }
+                        } onResetPIN: {
+                            resettingPINFor = member
+                        } onShiftHistory: {
+                            shiftHistoryFor = member
+                        }
                     }
                 }
                 .background(AppTheme.card)
@@ -1028,11 +1141,96 @@ struct StaffSettingsSection: View {
                     .strokeBorder(AppTheme.border, lineWidth: 1))
             }
         }
+        .sheet(isPresented: $showAddSheet) {
+            StaffFormSheet { payload in
+                Task { await createStaff(payload) }
+            }
+        }
+        .sheet(item: $editingStaff) { member in
+            StaffFormSheet(staff: member) { payload in
+                Task { await updateStaff(member.id, payload) }
+            }
+        }
+        .sheet(item: $resettingPINFor) { member in
+            ResetPINSheet(staff: member) { newPIN in
+                Task { await updatePIN(member.id, newPIN) }
+            }
+        }
+        .sheet(item: $shiftHistoryFor) { member in
+            StaffShiftHistorySheet(staff: member)
+        }
+    }
+
+    private func createStaff(_ payload: StaffCreate) async {
+        guard !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            let member = try await api.createStaff(payload)
+            staff.append(member)
+            showAddSheet = false
+            appState.showSuccess(l10n.staffCreated)
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func updateStaff(_ id: String, _ payload: StaffCreate) async {
+        guard !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            let updated = try await api.updateStaff(id, body: StaffUpdate(
+                nameAr: payload.nameAr,
+                nameEn: payload.nameEn,
+                role: payload.role,
+                isActive: true,
+                phone: payload.phone,
+                branchId: payload.branchId
+            ))
+            if let idx = staff.firstIndex(where: { $0.id == updated.id }) {
+                staff[idx] = updated
+            }
+            editingStaff = nil
+            appState.showSuccess(l10n.staffUpdated)
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func deleteStaff(_ member: Staff) async {
+        guard !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            try await api.deleteStaff(member.id)
+            staff.removeAll { $0.id == member.id }
+            appState.showSuccess(l10n.staffDeleted)
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func updatePIN(_ id: String, _ pin: String) async {
+        guard !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            try await api.updateStaffPin(id, body: PinUpdate(pin: pin))
+            resettingPINFor = nil
+            appState.showSuccess(l10n.pinUpdated)
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
     }
 }
 
 struct StaffRow: View {
     let member: Staff
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    let onResetPIN: () -> Void
+    let onShiftHistory: () -> Void
 
     var roleColor: Color {
         switch member.role {
@@ -1079,9 +1277,448 @@ struct StaffRow: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(action: onEdit) {
+                Label(L10n.shared.editStaff, systemImage: "pencil")
+            }
+            Button(action: onResetPIN) {
+                Label(L10n.shared.resetPIN, systemImage: "number")
+            }
+            Button(action: onShiftHistory) {
+                Label(L10n.shared.shiftHistory, systemImage: "clock.arrow.circlepath")
+            }
+            Button(role: .destructive, action: onDelete) {
+                Label(L10n.shared.deleteStaff, systemImage: "trash")
+            }
+        }
+        .onTapGesture(perform: onEdit)
         .overlay(alignment: .bottom) {
             Rectangle().fill(AppTheme.border.opacity(0.5)).frame(height: 0.5).padding(.leading, 16)
         }
+    }
+}
+
+struct SecuritySettingsSection: View {
+    @EnvironmentObject var appState: AppState
+    private let api = APIService.shared
+    private let l10n = L10n.shared
+    @State private var setupResponse: TwoFASetupResponse?
+    @State private var verificationCode = ""
+    @State private var currentPassword = ""
+    @State private var newPassword = ""
+    @State private var confirmPassword = ""
+    @State private var isLoading2FA = false
+    @State private var isChangingPassword = false
+
+    var body: some View {
+        VStack(spacing: 24) {
+            SettingsCard(title: l10n.twoFactorAuth, subtitle: l10n.twoFactorSubtitle, icon: "lock.shield.fill", color: AppTheme.accent2) {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let setupResponse {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(l10n.scanQRCode)
+                                .font(AppTheme.caption(13))
+                                .foregroundColor(AppTheme.textSecondary)
+
+                            if let provisioningUri = setupResponse.provisioningUri,
+                               let qrImage = QRCodeGenerator.image(from: provisioningUri) {
+                                Image(uiImage: qrImage)
+                                    .interpolation(.none)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 180, height: 180)
+                                    .padding(12)
+                                    .background(.white)
+                                    .cornerRadius(AppTheme.r12)
+                            }
+
+                            if let secret = setupResponse.secret {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(l10n.secretKey)
+                                        .font(AppTheme.caption(11))
+                                        .foregroundColor(AppTheme.textMuted)
+                                    Text(secret)
+                                        .font(AppTheme.mono(13))
+                                        .foregroundColor(AppTheme.textPrimary)
+                                }
+                            }
+
+                            ThemeTextField(icon: "number", placeholder: l10n.totpCode, text: $verificationCode, keyboardType: .numberPad)
+
+                            Button {
+                                Task { await confirm2FA() }
+                            } label: {
+                                ZStack {
+                                    if isLoading2FA {
+                                        ProgressView().tint(.white)
+                                    } else {
+                                        Text(l10n.verify)
+                                    }
+                                }
+                            }
+                            .buttonStyle(PrimaryButtonStyle(isFullWidth: true))
+                            .disabled(verificationCode.count < 6 || isLoading2FA)
+                        }
+                        .padding(20)
+                    } else {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(l10n.twoFADisabled)
+                                    .font(AppTheme.caption(13))
+                                    .foregroundColor(AppTheme.textSecondary)
+                            }
+                            Spacer()
+                            Button {
+                                Task { await begin2FASetup() }
+                            } label: {
+                                ZStack {
+                                    if isLoading2FA {
+                                        ProgressView().tint(.white)
+                                    } else {
+                                        Text(l10n.enable2FA)
+                                    }
+                                }
+                            }
+                            .buttonStyle(PrimaryButtonStyle())
+                            .disabled(isLoading2FA)
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 16)
+
+                        HStack {
+                            Spacer()
+                            Button {
+                                Task { await disable2FA() }
+                            } label: {
+                                Text(l10n.disable2FA)
+                                    .font(AppTheme.caption(13))
+                                    .foregroundColor(AppTheme.danger)
+                            }
+                            .disabled(isLoading2FA)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 16)
+                        }
+                    }
+                }
+            }
+
+            SettingsCard(title: l10n.changePassword, subtitle: nil, icon: "key.fill", color: AppTheme.warning) {
+                VStack(spacing: 16) {
+                    ThemeTextField(icon: "lock.fill", placeholder: l10n.currentPassword, text: $currentPassword)
+                    ThemeTextField(icon: "lock.fill", placeholder: l10n.newPassword, text: $newPassword)
+                    ThemeTextField(icon: "lock.fill", placeholder: l10n.confirmPassword, text: $confirmPassword)
+
+                    Button {
+                        Task { await changePasswordAction() }
+                    } label: {
+                        ZStack {
+                            if isChangingPassword {
+                                ProgressView().tint(.white)
+                            } else {
+                                Text(l10n.changePassword)
+                            }
+                        }
+                    }
+                    .buttonStyle(PrimaryButtonStyle(isFullWidth: true))
+                    .disabled(currentPassword.isEmpty || newPassword.isEmpty || confirmPassword.isEmpty || isChangingPassword)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+                }
+                .padding(.top, 16)
+            }
+        }
+    }
+
+    private func begin2FASetup() async {
+        isLoading2FA = true
+        defer { isLoading2FA = false }
+        do {
+            setupResponse = try await api.setup2FA()
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func confirm2FA() async {
+        guard let pendingToken = api.accessToken else { return }
+        isLoading2FA = true
+        defer { isLoading2FA = false }
+        do {
+            _ = try await api.verify2FA(Verify2FARequest(totpCode: verificationCode), pendingToken: pendingToken)
+            setupResponse = nil
+            verificationCode = ""
+            appState.showSuccess(l10n.twoFASetupSuccess)
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func disable2FA() async {
+        isLoading2FA = true
+        defer { isLoading2FA = false }
+        do {
+            try await api.disable2FA()
+            setupResponse = nil
+            verificationCode = ""
+            appState.showSuccess(l10n.twoFADisableSuccess)
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func changePasswordAction() async {
+        guard newPassword == confirmPassword else {
+            appState.showError(l10n.passwordsDoNotMatch)
+            return
+        }
+        isChangingPassword = true
+        defer { isChangingPassword = false }
+        do {
+            try await api.changePassword(ChangePasswordRequest(currentPassword: currentPassword, newPassword: newPassword))
+            currentPassword = ""
+            newPassword = ""
+            confirmPassword = ""
+            appState.showSuccess(l10n.passwordChanged)
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+}
+
+struct SubscriptionSettingsSection: View {
+    @EnvironmentObject var appState: AppState
+    private let api = APIService.shared
+    private let l10n = L10n.shared
+    @State private var info: SubscriptionInfo?
+    @State private var isLoading = false
+
+    var body: some View {
+        VStack(spacing: 24) {
+            if isLoading {
+                ProgressView()
+                    .tint(AppTheme.accent)
+                    .frame(maxWidth: .infinity, minHeight: 240)
+            } else if let info {
+                SettingsCard(title: l10n.subscription, subtitle: l10n.subscriptionSubtitle, icon: "creditcard.fill", color: AppTheme.info) {
+                    SettingsRow(label: l10n.currentPlan, value: info.plan ?? "-")
+                    SettingsRow(label: l10n.branches, value: "\(info.usedBranches ?? 0) \(l10n.of_l10n) \(info.maxBranches ?? 0)")
+                    SettingsRow(label: l10n.users, value: "\(info.usedStaff ?? 0) \(l10n.of_l10n) \(info.maxStaff ?? 0)")
+                    SettingsRow(label: "Status", value: info.status ?? "-")
+                    if let expiresAt = info.expiresAt {
+                        SettingsRow(label: l10n.expires, value: expiresAt)
+                    }
+                }
+            } else {
+                VStack(spacing: 12) {
+                    Image(systemName: "creditcard.trianglebadge.exclamationmark")
+                        .font(.system(size: 34))
+                        .foregroundColor(AppTheme.textMuted)
+                    Text(l10n.noData)
+                        .font(AppTheme.caption())
+                        .foregroundColor(AppTheme.textMuted)
+                }
+                .frame(maxWidth: .infinity, minHeight: 220)
+            }
+        }
+        .task { await loadSubscription() }
+    }
+
+    private func loadSubscription() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            info = try await api.fetchSubscriptionInfo()
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+}
+
+struct StaffFormSheet: View {
+    let staff: Staff?
+    let onSave: (StaffCreate) -> Void
+    @Environment(\.dismiss) private var dismiss
+    private let l10n = L10n.shared
+    @State private var nameAr = ""
+    @State private var nameEn = ""
+    @State private var email = ""
+    @State private var password = ""
+    @State private var role = "cashier"
+    @State private var phone = ""
+    @State private var branchId = ""
+    @State private var pin = ""
+
+    init(staff: Staff? = nil, onSave: @escaping (StaffCreate) -> Void) {
+        self.staff = staff
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        SheetContainer(title: staff == nil ? l10n.addStaff : l10n.editStaff) {
+            VStack(spacing: 16) {
+                ThemeTextField(icon: "textformat", placeholder: l10n.nameAr, text: $nameAr)
+                ThemeTextField(icon: "textformat", placeholder: l10n.nameEn, text: $nameEn)
+                ThemeTextField(icon: "envelope.fill", placeholder: l10n.email, text: $email, keyboardType: .emailAddress, autocapitalization: .never)
+                if staff == nil {
+                    ThemeTextField(icon: "lock.fill", placeholder: l10n.password, text: $password)
+                }
+                ThemeTextField(icon: "phone.fill", placeholder: l10n.phone, text: $phone, keyboardType: .phonePad)
+                ThemeTextField(icon: "number", placeholder: l10n.pin, text: $pin, keyboardType: .numberPad)
+                ThemeTextField(icon: "building.2.fill", placeholder: "Branch ID", text: $branchId)
+
+                Picker(l10n.role, selection: $role) {
+                    Text("Cashier").tag("cashier")
+                    Text("Waiter").tag("waiter")
+                    Text("Kitchen").tag("kitchen")
+                    Text("Manager").tag("manager")
+                    Text("Accountant").tag("accountant")
+                    Text("Owner").tag("owner")
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button {
+                    onSave(StaffCreate(
+                        nameAr: nameAr,
+                        nameEn: nameEn,
+                        email: email,
+                        password: password.isEmpty ? "Temp1234!" : password,
+                        role: role,
+                        phone: phone.isEmpty ? nil : phone,
+                        branchId: branchId.isEmpty ? nil : branchId,
+                        pin: pin.isEmpty ? nil : pin
+                    ))
+                    dismiss()
+                } label: {
+                    Text(l10n.save)
+                }
+                .buttonStyle(PrimaryButtonStyle(isFullWidth: true))
+                .disabled(nameAr.isEmpty || nameEn.isEmpty || email.isEmpty || (staff == nil && password.isEmpty))
+            }
+            .padding(24)
+            .onAppear {
+                guard let staff else { return }
+                nameAr = staff.nameAr
+                nameEn = staff.nameEn
+                email = staff.email
+                role = staff.role
+                phone = staff.phone ?? ""
+                branchId = staff.branchId ?? ""
+            }
+        }
+    }
+}
+
+struct ResetPINSheet: View {
+    let staff: Staff
+    let onSave: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var pin = ""
+    private let l10n = L10n.shared
+
+    var body: some View {
+        SheetContainer(title: l10n.resetPIN) {
+            VStack(spacing: 16) {
+                Text(staff.nameEn)
+                    .font(AppTheme.headline())
+                    .foregroundColor(AppTheme.textPrimary)
+
+                ThemeTextField(icon: "number", placeholder: l10n.pin, text: $pin, keyboardType: .numberPad)
+
+                Button {
+                    onSave(pin)
+                    dismiss()
+                } label: {
+                    Text(l10n.save)
+                }
+                .buttonStyle(PrimaryButtonStyle(isFullWidth: true))
+                .disabled(pin.count < 4)
+            }
+            .padding(24)
+        }
+    }
+}
+
+struct StaffShiftHistorySheet: View {
+    let staff: Staff
+    @EnvironmentObject var appState: AppState
+    private let api = APIService.shared
+    private let l10n = L10n.shared
+    @State private var shifts: [Shift] = []
+    @State private var isLoading = false
+
+    var body: some View {
+        SheetContainer(title: l10n.shiftHistory) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(staff.nameEn)
+                    .font(AppTheme.headline())
+                    .foregroundColor(AppTheme.textPrimary)
+
+                if isLoading {
+                    ProgressView()
+                        .tint(AppTheme.accent)
+                        .frame(maxWidth: .infinity, minHeight: 180)
+                } else if shifts.isEmpty {
+                    Text(l10n.noData)
+                        .font(AppTheme.caption())
+                        .foregroundColor(AppTheme.textMuted)
+                        .frame(maxWidth: .infinity, minHeight: 180)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 10) {
+                            ForEach(shifts) { shift in
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(shift.openedAt ?? "-")
+                                            .font(AppTheme.caption(13))
+                                            .foregroundColor(AppTheme.textPrimary)
+                                        if let closedAt = shift.closedAt {
+                                            Text(closedAt)
+                                                .font(AppTheme.caption(11))
+                                                .foregroundColor(AppTheme.textMuted)
+                                        }
+                                    }
+                                    Spacer()
+                                    Text((shift.totalSales ?? 0).sarFormatted)
+                                        .font(AppTheme.mono(13))
+                                        .foregroundColor(AppTheme.textSecondary)
+                                }
+                                .padding(12)
+                                .background(AppTheme.card)
+                                .cornerRadius(AppTheme.r12)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(24)
+            .task { await loadShifts() }
+        }
+    }
+
+    private func loadShifts() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            shifts = try await api.fetchStaffShiftHistory(staff.id)
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+}
+
+enum QRCodeGenerator {
+    static func image(from string: String) -> UIImage? {
+        let data = Data(string.utf8)
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(data, forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage else { return nil }
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 8, y: 8))
+        let context = CIContext()
+        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
     }
 }
 

@@ -12,6 +12,10 @@ struct ReportsView: View {
     @State private var topProducts: [TopProduct] = []
     @State private var paymentsSummary: [PaymentSummaryRow] = []
     @State private var zatcaReport: ZATCAReport?
+    @State private var dailyReport: DailyReport?
+    @State private var monthlyReport: MonthlyReport?
+    @State private var profitabilityRows: [ProfitabilityRow] = []
+    @State private var ordersReport: [Order] = []
     @State private var managerOverrideToken: String?
     @State private var managerApproverName: String?
     @State private var showManagerApproval = false
@@ -44,6 +48,7 @@ struct ReportsView: View {
                     errorView(error)
                 } else if dashboard != nil {
                     kpiCards
+                    extendedReportsSection
                     todayHighlightCards
                     hourlyTrendChart
                     if !topProducts.isEmpty { topProductsChart }
@@ -647,12 +652,130 @@ struct ReportsView: View {
         .padding(.horizontal, 32)
     }
 
+    private var extendedReportsSection: some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 16) {
+                reportSnapshotCard(
+                    title: L10n.shared.dailyReport,
+                    value: (dailyReport?.totalRevenue ?? 0).sarFormatted,
+                    subtitle: "\(dailyReport?.totalOrders ?? 0) \(L10n.shared.orders)",
+                    color: AppTheme.info
+                )
+
+                reportSnapshotCard(
+                    title: L10n.shared.monthlyReport,
+                    value: (monthlyReport?.totalRevenue ?? 0).sarFormatted,
+                    subtitle: "\(monthlyReport?.totalOrders ?? 0) \(L10n.shared.orders)",
+                    color: AppTheme.success
+                )
+            }
+            .padding(.horizontal, 24)
+
+            if !profitabilityRows.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(L10n.shared.profitabilityReport)
+                        .font(AppTheme.headline())
+                        .foregroundColor(AppTheme.textPrimary)
+
+                    VStack(spacing: 10) {
+                        ForEach(Array(profitabilityRows.prefix(5))) { row in
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(isArabic ? (row.nameAr ?? row.nameEn ?? "-") : (row.nameEn ?? row.nameAr ?? "-"))
+                                        .font(AppTheme.caption(13))
+                                        .foregroundColor(AppTheme.textPrimary)
+                                    Text("\(L10n.shared.revenue): \((row.totalRevenue ?? 0).sarFormatted)")
+                                        .font(AppTheme.caption(11))
+                                        .foregroundColor(AppTheme.textMuted)
+                                }
+                                Spacer()
+                                VStack(alignment: .trailing, spacing: 4) {
+                                    Text((row.profit ?? 0).sarFormatted)
+                                        .font(AppTheme.mono(13))
+                                        .foregroundColor(AppTheme.success)
+                                    Text(String(format: "%.1f%%", row.marginPct ?? 0))
+                                        .font(AppTheme.caption(11))
+                                        .foregroundColor(AppTheme.textMuted)
+                                }
+                            }
+                            .padding(12)
+                            .background(AppTheme.card)
+                            .cornerRadius(AppTheme.r12)
+                        }
+                    }
+                }
+                .padding(20)
+                .background(AppTheme.surface)
+                .cornerRadius(AppTheme.r16)
+                .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
+                    .strokeBorder(AppTheme.border, lineWidth: 1))
+                .padding(.horizontal, 24)
+            }
+
+            if !ordersReport.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(L10n.shared.ordersReport)
+                        .font(AppTheme.headline())
+                        .foregroundColor(AppTheme.textPrimary)
+                    ForEach(Array(ordersReport.prefix(5))) { order in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(order.orderNumber ?? order.id)
+                                    .font(AppTheme.caption(13))
+                                    .foregroundColor(AppTheme.textPrimary)
+                                Text(order.orderType.replacingOccurrences(of: "_", with: " ").capitalized)
+                                    .font(AppTheme.caption(11))
+                                    .foregroundColor(AppTheme.textMuted)
+                            }
+                            Spacer()
+                            Text(order.totalSafe.sarFormatted)
+                                .font(AppTheme.mono(13))
+                                .foregroundColor(AppTheme.accent)
+                        }
+                        .padding(.vertical, 6)
+                    }
+                }
+                .padding(20)
+                .background(AppTheme.surface)
+                .cornerRadius(AppTheme.r16)
+                .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
+                    .strokeBorder(AppTheme.border, lineWidth: 1))
+                .padding(.horizontal, 24)
+            }
+        }
+        .padding(.top, 20)
+    }
+
+    private func reportSnapshotCard(title: String, value: String, subtitle: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(AppTheme.caption(12))
+                .foregroundColor(AppTheme.textMuted)
+            Text(value)
+                .font(AppTheme.title2())
+                .foregroundColor(AppTheme.textPrimary)
+            Text(subtitle)
+                .font(AppTheme.caption(11))
+                .foregroundColor(color)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(AppTheme.surface)
+        .cornerRadius(AppTheme.r16)
+        .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
+            .strokeBorder(AppTheme.border, lineWidth: 1))
+    }
+
     // MARK: - Data Loading
     private func loadData() async {
         isLoading = true
         errorMessage = nil
         paymentsSummary = []
         zatcaReport = nil
+        dailyReport = nil
+        monthlyReport = nil
+        profitabilityRows = []
+        ordersReport = []
 
         // Fetch dashboard first — if it fails the remaining requests are skipped,
         // avoiding the async-let implicit-cancellation deallocation crash.
@@ -682,10 +805,18 @@ struct ReportsView: View {
         async let paymentsTask = try? api.fetchPaymentsSummary(range: selectedRange, authToken: reportAccessToken)
         async let zatcaTask = try? api.fetchZATCAReport(range: selectedRange, authToken: reportAccessToken)
         async let productsTask = try? api.fetchTopProducts(limit: 10, range: selectedRange, authToken: reportAccessToken)
+        async let dailyTask = try? api.fetchDailyReport()
+        async let monthlyTask = try? api.fetchMonthlyReport()
+        async let profitabilityTask = try? api.fetchProfitabilityReport(range: selectedRange)
+        async let ordersTask = try? api.fetchOrdersReport(range: selectedRange, skip: 0, limit: 20)
 
         paymentsSummary = await paymentsTask ?? []
         zatcaReport = await zatcaTask
         topProducts = await productsTask ?? []
+        dailyReport = await dailyTask
+        monthlyReport = await monthlyTask
+        profitabilityRows = await profitabilityTask ?? []
+        ordersReport = await ordersTask ?? []
 
         isLoading = false
     }
@@ -696,6 +827,10 @@ struct ReportsView: View {
             topProducts = []
             paymentsSummary = []
             zatcaReport = nil
+            dailyReport = nil
+            monthlyReport = nil
+            profitabilityRows = []
+            ordersReport = []
             errorMessage = nil
             return
         }

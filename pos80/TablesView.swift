@@ -8,6 +8,10 @@ struct TablesView: View {
     @State private var isLoading = false
     @State private var viewMode: ViewMode = .grid
     @State private var showAddTable = false
+    @State private var editingTable: RestaurantTable?
+    @State private var qrPreviewImage: UIImage?
+    @State private var showQRPreview = false
+    @State private var isPerformingAction = false
 
     enum ViewMode { case grid, map }
 
@@ -22,17 +26,36 @@ struct TablesView: View {
             tablesHeader
             // Stats bar
             statsBar
+            viewModePicker
             // Content
             if isLoading {
                 loadingState
             } else if tables.isEmpty {
                 emptyState
             } else {
-                tableGrid
+                if viewMode == .grid {
+                    tableGrid
+                } else {
+                    floorMap
+                }
             }
         }
         .background(AppTheme.bg)
-        .sheet(isPresented: $showAddTable) { addTableSheet }
+        .sheet(isPresented: $showAddTable) {
+            TableFormSheet { payload in
+                Task { await addTable(payload) }
+            }
+        }
+        .sheet(item: $editingTable) { table in
+            TableFormSheet(table: table) { payload in
+                Task { await updateTable(table.id, payload) }
+            }
+        }
+        .sheet(isPresented: $showQRPreview) {
+            if let qrPreviewImage {
+                TableQRPreviewSheet(image: qrPreviewImage)
+            }
+        }
         .task { await loadTables() }
     }
 
@@ -53,6 +76,13 @@ struct TablesView: View {
             }
             Spacer()
             HStack(spacing: 8) {
+                Picker("", selection: $viewMode) {
+                    Text("Grid").tag(ViewMode.grid)
+                    Text("Map").tag(ViewMode.map)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 140)
+
                 Button {
                     Task { await loadTables() }
                 } label: {
@@ -85,6 +115,10 @@ struct TablesView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(AppTheme.border).frame(height: 1)
         }
+    }
+
+    private var viewModePicker: some View {
+        EmptyView()
     }
 
     // MARK: Stats bar
@@ -124,6 +158,30 @@ struct TablesView: View {
                                 posVM.selectedTable = table
                                 appState.selectedTab = .pos
                             }
+                            .contextMenu {
+                                if appState.currentUser?.isManager ?? false {
+                                    Button {
+                                        editingTable = table
+                                    } label: {
+                                        Label(L10n.shared.editTable, systemImage: "pencil")
+                                    }
+                                    Button {
+                                        Task { await ringBell(for: table) }
+                                    } label: {
+                                        Label(L10n.shared.ringBell, systemImage: "bell.fill")
+                                    }
+                                    Button {
+                                        Task { await showQR(for: table) }
+                                    } label: {
+                                        Label(L10n.shared.viewQR, systemImage: "qrcode")
+                                    }
+                                    Button(role: .destructive) {
+                                        Task { await deleteTable(table) }
+                                    } label: {
+                                        Label(L10n.shared.deleteTable, systemImage: "trash")
+                                    }
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal, 24)
@@ -132,6 +190,59 @@ struct TablesView: View {
             }
         }
         .padding(.top, 8)
+    }
+
+    private var floorMap: some View {
+        GeometryReader { geo in
+            ZStack {
+                RoundedRectangle(cornerRadius: AppTheme.r16)
+                    .fill(AppTheme.card)
+                    .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
+                        .strokeBorder(AppTheme.border, lineWidth: 1))
+
+                ForEach(Array(tables.enumerated()), id: \.element.id) { index, table in
+                    TableMapNode(table: table)
+                        .position(position(for: table, index: index, in: geo.size))
+                        .gesture(
+                            DragGesture()
+                                .onEnded { value in
+                                    guard appState.currentUser?.isManager == true else { return }
+                                    Task {
+                                        await updateTablePosition(
+                                            table.id,
+                                            x: max(0, min(value.location.x / max(geo.size.width, 1), 1)),
+                                            y: max(0, min(value.location.y / max(geo.size.height, 1), 1))
+                                        )
+                                    }
+                                }
+                        )
+                        .onTapGesture {
+                            posVM.selectedTable = table
+                            appState.selectedTab = .pos
+                        }
+                        .contextMenu {
+                            if appState.currentUser?.isManager ?? false {
+                                Button {
+                                    editingTable = table
+                                } label: {
+                                    Label(L10n.shared.editTable, systemImage: "pencil")
+                                }
+                                Button {
+                                    Task { await ringBell(for: table) }
+                                } label: {
+                                    Label(L10n.shared.ringBell, systemImage: "bell.fill")
+                                }
+                                Button {
+                                    Task { await showQR(for: table) }
+                                } label: {
+                                    Label(L10n.shared.viewQR, systemImage: "qrcode")
+                                }
+                            }
+                        }
+                }
+            }
+            .padding(24)
+        }
     }
 
     private var emptyState: some View {
@@ -164,33 +275,6 @@ struct TablesView: View {
         }
     }
 
-    // MARK: Add Table Sheet
-    @State private var newTableNumber = ""
-    @State private var newTableSection = ""
-    @State private var newTableCapacity = "4"
-
-    private var addTableSheet: some View {
-        SheetContainer(title: "Add Table") {
-            VStack(spacing: 16) {
-                ThemeTextField(icon: "number", placeholder: "Table number (e.g. 1, A1)",
-                               text: $newTableNumber)
-                ThemeTextField(icon: "rectangle.split.3x1.fill", placeholder: "Section (optional)",
-                               text: $newTableSection)
-                ThemeTextField(icon: "person.2.fill", placeholder: "Capacity",
-                               text: $newTableCapacity, keyboardType: .numberPad)
-
-                Button {
-                    Task { await addTable() }
-                } label: {
-                    Text("Add Table")
-                }
-                .buttonStyle(PrimaryButtonStyle(isFullWidth: true))
-                .disabled(newTableNumber.isEmpty)
-            }
-            .padding(24)
-        }
-    }
-
     // MARK: Helpers
     private func groupedBySections() -> [(String, [RestaurantTable])] {
         var dict: [String: [RestaurantTable]] = [:]
@@ -207,24 +291,101 @@ struct TablesView: View {
         isLoading = false
     }
 
-    private func addTable() async {
-        struct TableCreate: Codable {
-            let number: String
-            let section: String?
-            let capacity: Int
-        }
+    private func addTable(_ payload: TableCreate) async {
+        guard !isPerformingAction else { return }
+        isPerformingAction = true
+        defer { isPerformingAction = false }
         do {
-            let _: RestaurantTable = try await api.request(
-                path: "/tables",
-                method: .post,
-                body: TableCreate(number: newTableNumber,
-                                  section: newTableSection.isEmpty ? nil : newTableSection,
-                                  capacity: Int(newTableCapacity) ?? 4))
+            _ = try await api.createTable(payload)
             await loadTables()
             showAddTable = false
-            newTableNumber = ""
-            newTableSection = ""
-        } catch {}
+            appState.showSuccess("Table created")
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func updateTable(_ id: String, _ payload: TableCreate) async {
+        guard !isPerformingAction else { return }
+        isPerformingAction = true
+        defer { isPerformingAction = false }
+        do {
+            _ = try await api.updateTable(id, body: TableUpdate(
+                number: payload.number,
+                nameAr: payload.nameAr,
+                nameEn: payload.nameEn,
+                capacity: payload.capacity,
+                section: payload.section
+            ))
+            await loadTables()
+            editingTable = nil
+            appState.showSuccess(L10n.shared.tableUpdated)
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func deleteTable(_ table: RestaurantTable) async {
+        guard !isPerformingAction else { return }
+        isPerformingAction = true
+        defer { isPerformingAction = false }
+        do {
+            try await api.deleteTable(table.id)
+            tables.removeAll { $0.id == table.id }
+            appState.showSuccess(L10n.shared.tableDeleted)
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func ringBell(for table: RestaurantTable) async {
+        do {
+            try await api.ringTableBell(table.id)
+            appState.showSuccess("\(L10n.shared.bellRung) \(table.displayLabel)")
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func showQR(for table: RestaurantTable) async {
+        do {
+            let data = try await api.generateTableQR(table.id)
+            qrPreviewImage = UIImage(data: data)
+            showQRPreview = qrPreviewImage != nil
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func updateTablePosition(_ id: String, x: Double, y: Double) async {
+        do {
+            try await api.updateTablePosition(id, body: TablePositionUpdate(posX: x, posY: y))
+            if let idx = tables.firstIndex(where: { $0.id == id }) {
+                let table = tables[idx]
+                tables[idx] = RestaurantTable(
+                    id: table.id,
+                    number: table.number,
+                    nameAr: table.nameAr,
+                    nameEn: table.nameEn,
+                    capacity: table.capacity,
+                    section: table.section,
+                    posX: x,
+                    posY: y,
+                    status: table.status,
+                    currentOrderId: table.currentOrderId
+                )
+            }
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func position(for table: RestaurantTable, index: Int, in size: CGSize) -> CGPoint {
+        let fallbackX = 0.18 + (Double(index % 4) * 0.2)
+        let fallbackY = 0.18 + (Double(index / 4) * 0.22)
+        let x = (table.posX ?? fallbackX) * size.width
+        let y = (table.posY ?? fallbackY) * size.height
+        return CGPoint(x: min(max(44, x), size.width - 44), y: min(max(44, y), size.height - 44))
     }
 }
 
@@ -332,5 +493,103 @@ struct TableStatCard: View {
         .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
             .strokeBorder(AppTheme.border, lineWidth: 1))
         .shadow(color: AppTheme.shadow.opacity(0.7), radius: 14, y: 6)
+    }
+}
+
+struct TableMapNode: View {
+    let table: RestaurantTable
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "table.furniture.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(table.isOccupied ? AppTheme.danger : AppTheme.success)
+            Text(table.displayLabel)
+                .font(AppTheme.caption(12))
+                .foregroundColor(AppTheme.textPrimary)
+        }
+        .frame(width: 78, height: 62)
+        .background(AppTheme.card)
+        .cornerRadius(AppTheme.r12)
+        .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
+            .strokeBorder(table.isOccupied ? AppTheme.danger.opacity(0.25) : AppTheme.border, lineWidth: 1))
+        .shadow(color: AppTheme.shadow.opacity(0.5), radius: 10, y: 4)
+    }
+}
+
+struct TableFormSheet: View {
+    let table: RestaurantTable?
+    let onSave: (TableCreate) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var number = ""
+    @State private var nameAr = ""
+    @State private var nameEn = ""
+    @State private var section = ""
+    @State private var capacity = "4"
+
+    init(table: RestaurantTable? = nil, onSave: @escaping (TableCreate) -> Void) {
+        self.table = table
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        SheetContainer(title: table == nil ? L10n.shared.addTable : L10n.shared.editTable) {
+            VStack(spacing: 16) {
+                ThemeTextField(icon: "number", placeholder: L10n.shared.tableNumber, text: $number)
+                ThemeTextField(icon: "textformat", placeholder: L10n.shared.nameAr, text: $nameAr)
+                ThemeTextField(icon: "textformat", placeholder: L10n.shared.nameEn, text: $nameEn)
+                ThemeTextField(icon: "rectangle.split.3x1.fill", placeholder: L10n.shared.section, text: $section)
+                ThemeTextField(icon: "person.2.fill", placeholder: L10n.shared.capacity, text: $capacity, keyboardType: .numberPad)
+
+                Button {
+                    onSave(TableCreate(
+                        number: number,
+                        nameAr: nameAr.isEmpty ? nil : nameAr,
+                        nameEn: nameEn.isEmpty ? nil : nameEn,
+                        capacity: Int(capacity) ?? 4,
+                        section: section.isEmpty ? nil : section,
+                        posX: table?.posX,
+                        posY: table?.posY
+                    ))
+                    dismiss()
+                } label: {
+                    Text(L10n.shared.save)
+                }
+                .buttonStyle(PrimaryButtonStyle(isFullWidth: true))
+                .disabled(number.isEmpty)
+            }
+            .padding(24)
+            .onAppear {
+                guard let table else { return }
+                number = table.number
+                nameAr = table.nameAr ?? ""
+                nameEn = table.nameEn ?? ""
+                section = table.section ?? ""
+                capacity = String(table.capacity)
+            }
+        }
+    }
+}
+
+struct TableQRPreviewSheet: View {
+    let image: UIImage
+
+    var body: some View {
+        CompatNavigationContainer {
+            VStack(spacing: 20) {
+                Image(uiImage: image)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(24)
+                    .background(.white)
+                    .cornerRadius(AppTheme.r16)
+                Spacer()
+            }
+            .padding(24)
+            .background(AppTheme.surface.ignoresSafeArea())
+            .navigationTitle(L10n.shared.viewQR)
+            .navigationBarTitleDisplayMode(.inline)
+        }
     }
 }
