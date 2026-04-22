@@ -109,6 +109,9 @@ struct OrdersView: View {
         isDownloadingPDF = true
         do {
             let data = try await api.downloadInvoicePDF(order.id)
+            guard isValidPDF(data) else {
+                throw NSError(domain: "PDF", code: 0, userInfo: [NSLocalizedDescriptionKey: "The server returned an invalid invoice file."])
+            }
             pdfData = data
             showPDFPreview = true
         } catch {
@@ -290,11 +293,18 @@ struct OrdersView: View {
                             Label("Copy Order #", systemImage: "doc.on.doc")
                         }
                         .compatOrderContextMenuTip()
-                        if order.status == "received" || order.status == "draft" {
+                        if order.status == "draft" {
+                            Button {
+                                Task { await quickActivateDraftOrder(order) }
+                            } label: {
+                                Label(L10n.shared.sendToKitchen, systemImage: "flame.fill")
+                            }
+                        }
+                        if order.status == "received" {
                             Button {
                                 Task { await quickUpdateStatus(for: order, to: "preparing") }
                             } label: {
-                                Label(L10n.shared.markPreparing, systemImage: "flame.fill")
+                                Label(L10n.shared.startPreparing, systemImage: "flame.fill")
                             }
                         }
                         if order.status == "preparing" {
@@ -351,7 +361,7 @@ struct OrdersView: View {
 
     private func quickUpdateStatus(for order: Order, to newStatus: String) async {
         do {
-            let updated = try await api.updateOrderStatus(order.id, body: StatusUpdate(status: newStatus))
+            let updated = try await api.transitionOrder(order.id, currentStatus: order.status, newStatus: newStatus)
             if let idx = orders.firstIndex(where: { $0.id == updated.id }) {
                 orders[idx] = updated
             }
@@ -364,12 +374,32 @@ struct OrdersView: View {
         }
     }
 
+    private func quickActivateDraftOrder(_ order: Order) async {
+        do {
+            let updated = try await api.activateDraftOrder(order.id)
+            if let idx = orders.firstIndex(where: { $0.id == updated.id }) {
+                orders[idx] = updated
+            }
+            if selectedOrder?.id == updated.id {
+                selectedOrder = updated
+            }
+            appState.showSuccess(l10n.sentToKitchen)
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
     private func formattedDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
+    }
+
+    private func isValidPDF(_ data: Data) -> Bool {
+        guard data.count >= 4 else { return false }
+        return String(data: data.prefix(4), encoding: .ascii) == "%PDF"
     }
 }
 
@@ -726,8 +756,13 @@ struct OrderDetailView: View {
                 showChargeSheet = true
             }
 
-            if order.status == "received" || order.status == "draft" {
-                StatusActionButton(label: l10n.markPreparing, icon: "flame.fill", color: AppTheme.warning) {
+            if order.status == "draft" {
+                StatusActionButton(label: l10n.sendToKitchen, icon: "flame.fill", color: AppTheme.warning) {
+                    await activateDraftOrder()
+                }
+            }
+            if order.status == "received" {
+                StatusActionButton(label: l10n.startPreparing, icon: "flame.fill", color: AppTheme.warning) {
                     await updateStatus("preparing")
                 }
             }
@@ -775,6 +810,9 @@ struct OrderDetailView: View {
         isDownloadingPDF = true
         do {
             let data = try await api.downloadInvoicePDF(order.id)
+            guard isValidPDF(data) else {
+                throw NSError(domain: "PDF", code: 0, userInfo: [NSLocalizedDescriptionKey: "The server returned an invalid invoice file."])
+            }
             detailPdfData = data
             showPDFPreview = true
         } catch {
@@ -786,8 +824,20 @@ struct OrderDetailView: View {
     private func updateStatus(_ newStatus: String) async {
         isUpdating = true
         do {
-            let updated = try await api.updateOrderStatus(order.id, body: StatusUpdate(status: newStatus))
+            let updated = try await api.transitionOrder(order.id, currentStatus: order.status, newStatus: newStatus)
             onStatusChange(updated)
+        } catch {
+            appState.toast = ToastMessage(type: .error, text: error.localizedDescription)
+        }
+        isUpdating = false
+    }
+
+    private func activateDraftOrder() async {
+        isUpdating = true
+        do {
+            let updated = try await api.activateDraftOrder(order.id)
+            onStatusChange(updated)
+            appState.showSuccess(l10n.sentToKitchen)
         } catch {
             appState.toast = ToastMessage(type: .error, text: error.localizedDescription)
         }
@@ -898,6 +948,11 @@ struct OrderDetailView: View {
         }
         showShareSheet = true
     }
+
+    private func isValidPDF(_ data: Data) -> Bool {
+        guard data.count >= 4 else { return false }
+        return String(data: data.prefix(4), encoding: .ascii) == "%PDF"
+    }
 }
 
 // MARK: - Supporting Views
@@ -954,24 +1009,46 @@ struct PDFPreviewSheet: View {
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
 
+    private var hasValidDocument: Bool {
+        PDFDocument(data: data) != nil
+    }
+
     var body: some View {
         CompatNavigationContainer {
-            PDFViewerController(data: data)
-                .ignoresSafeArea(edges: .bottom)
-                .navigationTitle("Invoice")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Close") { dismiss() }
+            Group {
+                if hasValidDocument {
+                    PDFViewerController(data: data)
+                        .ignoresSafeArea(edges: .bottom)
+                } else {
+                    VStack(spacing: 12) {
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .font(.system(size: 40))
+                            .foregroundColor(AppTheme.warning)
+                        Text("The invoice preview is unavailable for this order.")
+                            .font(AppTheme.body(15))
+                            .foregroundColor(AppTheme.textSecondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
                     }
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            sharePreviewPDF()
-                        } label: {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(AppTheme.bg.ignoresSafeArea())
                 }
+            }
+            .navigationTitle("Invoice")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        sharePreviewPDF()
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .disabled(!hasValidDocument)
+                }
+            }
         }
         .sheet(isPresented: $showShareSheet) {
             ShareSheet(items: shareItems)

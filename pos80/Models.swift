@@ -254,6 +254,47 @@ struct SelectedModifier: Identifiable {
     let priceDelta: Double
 }
 
+private extension KeyedDecodingContainer {
+    func decodeLossyString(forKey key: Key) -> String? {
+        if let value = try? decode(String.self, forKey: key) {
+            return value
+        }
+        if let value = try? decode(Int.self, forKey: key) {
+            return String(value)
+        }
+        if let value = try? decode(Double.self, forKey: key) {
+            return value.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(value)) : String(value)
+        }
+        return nil
+    }
+
+    func decodeLossyInt(forKey key: Key) -> Int? {
+        if let value = try? decode(Int.self, forKey: key) {
+            return value
+        }
+        if let value = try? decode(Double.self, forKey: key) {
+            return Int(value)
+        }
+        if let value = try? decode(String.self, forKey: key) {
+            return Int(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
+    }
+
+    func decodeLossyDouble(forKey key: Key) -> Double? {
+        if let value = try? decode(Double.self, forKey: key) {
+            return value
+        }
+        if let value = try? decode(Int.self, forKey: key) {
+            return Double(value)
+        }
+        if let value = try? decode(String.self, forKey: key) {
+            return Double(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
+    }
+}
+
 // MARK: - Orders
 enum OrderType: String, Codable, CaseIterable {
     case dineIn = "dine_in"
@@ -578,9 +619,12 @@ extension Order: Codable {
         case tableNumber   = "table_number"
         case customerName  = "customer_name"
         case items, subtotal
+        case subTotal      = "sub_total"
         case totalAmount   = "total_amount"  // API alternate key
         case vatAmount     = "vat_amount"
+        case taxAmount     = "tax_amount"
         case discountAmount = "discount_amount"
+        case discount
         case total
         case paymentMethod = "payment_method"
         case notes
@@ -591,30 +635,31 @@ extension Order: Codable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         // id: try "id" first, then "order_id" (actual API key)
-        if let s = try? c.decode(String.self, forKey: .id) { id = s }
-        else if let n = try? c.decode(Int.self, forKey: .id) { id = "\(n)" }
-        else if let s = try? c.decode(String.self, forKey: .orderId) { id = s }
-        else if let n = try? c.decode(Int.self, forKey: .orderId) { id = "\(n)" }
+        if let s = c.decodeLossyString(forKey: .id) { id = s }
+        else if let s = c.decodeLossyString(forKey: .orderId) { id = s }
         else { throw DecodingError.keyNotFound(CodingKeys.id,
                .init(codingPath: c.codingPath, debugDescription: "Missing order id/order_id")) }
 
-        orderNumber   = try? c.decode(String.self, forKey: .orderNumber)
-        displayNumber = try? c.decode(Int.self,    forKey: .displayNumber)
-        orderType     = ((try? c.decode(String.self, forKey: .orderType)) ?? "dine_in").lowercased()
-        status        = ((try? c.decode(String.self, forKey: .status)) ?? "draft").lowercased()
-        tableId       = try? c.decode(String.self, forKey: .tableId)
-        tableNumber   = try? c.decode(String.self, forKey: .tableNumber)
-        customerName  = try? c.decode(String.self, forKey: .customerName)
+        orderNumber   = c.decodeLossyString(forKey: .orderNumber)
+        displayNumber = c.decodeLossyInt(forKey: .displayNumber)
+        orderType     = (c.decodeLossyString(forKey: .orderType) ?? "dine_in").lowercased()
+        status        = (c.decodeLossyString(forKey: .status) ?? "draft").lowercased()
+        tableId       = c.decodeLossyString(forKey: .tableId)
+        tableNumber   = c.decodeLossyString(forKey: .tableNumber)
+        customerName  = c.decodeLossyString(forKey: .customerName)
         items         = try? c.decode([OrderItem].self, forKey: .items)
-        subtotal      = try? c.decode(Double.self, forKey: .subtotal)
-        vatAmount     = try? c.decode(Double.self, forKey: .vatAmount)
-        discountAmount = try? c.decode(Double.self, forKey: .discountAmount)
-        total         = (try? c.decode(Double.self, forKey: .total))
-                     ?? (try? c.decode(Double.self, forKey: .totalAmount))
-        paymentMethod = try? c.decode(String.self, forKey: .paymentMethod)
-        notes         = try? c.decode(String.self, forKey: .notes)
-        createdAt     = try? c.decode(String.self, forKey: .createdAt)
-        paidAt        = try? c.decode(String.self, forKey: .paidAt)
+        subtotal      = c.decodeLossyDouble(forKey: .subtotal)
+                     ?? c.decodeLossyDouble(forKey: .subTotal)
+        vatAmount     = c.decodeLossyDouble(forKey: .vatAmount)
+                     ?? c.decodeLossyDouble(forKey: .taxAmount)
+        discountAmount = c.decodeLossyDouble(forKey: .discountAmount)
+                      ?? c.decodeLossyDouble(forKey: .discount)
+        total         = c.decodeLossyDouble(forKey: .total)
+                     ?? c.decodeLossyDouble(forKey: .totalAmount)
+        paymentMethod = c.decodeLossyString(forKey: .paymentMethod)
+        notes         = c.decodeLossyString(forKey: .notes)
+        createdAt     = c.decodeLossyString(forKey: .createdAt)
+        paidAt        = c.decodeLossyString(forKey: .paidAt)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -656,25 +701,49 @@ extension OrderItem: Codable {
         case productId      = "product_id"
         case productNameEn  = "product_name_en"
         case productNameAr  = "product_name_ar"
+        case nameEn         = "name_en"
+        case nameAr         = "name_ar"
+        case productName    = "product_name"
+        case name
         case quantity
         case unitPrice      = "unit_price"
+        case price
         case lineTotal      = "line_total"
+        case total
         case notes
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        if let s = try? c.decode(String.self, forKey: .id) { id = s }
-        else if let n = try? c.decode(Int.self, forKey: .id) { id = "\(n)" }
+        if let s = c.decodeLossyString(forKey: .id) { id = s }
         else { id = UUID().uuidString }
 
-        productId     = try? c.decode(String.self, forKey: .productId)
-        productNameEn = try? c.decode(String.self, forKey: .productNameEn)
-        productNameAr = try? c.decode(String.self, forKey: .productNameAr)
-        quantity      = (try? c.decode(Int.self,    forKey: .quantity)) ?? 1
-        unitPrice     = (try? c.decode(Double.self, forKey: .unitPrice)) ?? 0
-        lineTotal     = try? c.decode(Double.self, forKey: .lineTotal)
-        notes         = try? c.decode(String.self, forKey: .notes)
+        productId     = c.decodeLossyString(forKey: .productId)
+        productNameEn = c.decodeLossyString(forKey: .productNameEn)
+                     ?? c.decodeLossyString(forKey: .nameEn)
+                     ?? c.decodeLossyString(forKey: .productName)
+                     ?? c.decodeLossyString(forKey: .name)
+        productNameAr = c.decodeLossyString(forKey: .productNameAr)
+                     ?? c.decodeLossyString(forKey: .nameAr)
+        quantity      = c.decodeLossyInt(forKey: .quantity) ?? 1
+        unitPrice     = c.decodeLossyDouble(forKey: .unitPrice)
+                     ?? c.decodeLossyDouble(forKey: .price)
+                     ?? 0
+        lineTotal     = c.decodeLossyDouble(forKey: .lineTotal)
+                     ?? c.decodeLossyDouble(forKey: .total)
+        notes         = c.decodeLossyString(forKey: .notes)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try? c.encode(productId, forKey: .productId)
+        try? c.encode(productNameEn, forKey: .productNameEn)
+        try? c.encode(productNameAr, forKey: .productNameAr)
+        try c.encode(quantity, forKey: .quantity)
+        try c.encode(unitPrice, forKey: .unitPrice)
+        try? c.encode(lineTotal, forKey: .lineTotal)
+        try? c.encode(notes, forKey: .notes)
     }
 }
 

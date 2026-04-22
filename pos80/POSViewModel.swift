@@ -611,6 +611,9 @@ final class POSViewModel: ObservableObject {
     // MARK: Load Held Order Into Cart
     func loadHeldOrderIntoCart(_ order: Order) async {
         do {
+            if products.isEmpty {
+                await loadMenu()
+            }
             let detailedOrder = try await api.getOrder(order.id)
             let sourceItems = detailedOrder.items ?? order.items ?? []
 
@@ -623,8 +626,24 @@ final class POSViewModel: ObservableObject {
             var missingItems = 0
 
             for item in sourceItems {
-                guard let productId = item.productId,
-                      let product = products.first(where: { $0.id == productId }) else {
+                let product = products.first { product in
+                    if let productId = item.productId, product.id == productId {
+                        return true
+                    }
+                    if let productNameEn = item.productNameEn,
+                       !productNameEn.isEmpty,
+                       product.nameEn.caseInsensitiveCompare(productNameEn) == .orderedSame {
+                        return true
+                    }
+                    if let productNameAr = item.productNameAr,
+                       !productNameAr.isEmpty,
+                       product.nameAr == productNameAr {
+                        return true
+                    }
+                    return false
+                }
+
+                guard let product else {
                     missingItems += 1
                     continue
                 }
@@ -656,6 +675,12 @@ final class POSViewModel: ObservableObject {
                 appliedCoupon = nil
                 couponCode = ""
                 loyaltyCustomer = nil
+            }
+
+            _ = try await api.unholdOrder(order.id)
+
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                heldOrders.removeAll { $0.id == order.id }
             }
 
             appState.selectedTab = .pos

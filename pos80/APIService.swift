@@ -262,26 +262,7 @@ final class APIService {
         method: HTTPMethod = .post,
         body: Encodable? = nil
     ) async throws {
-        try validateRuntimeBaseURL()
-        guard let url = URL(string: APIConfig.apiV1 + path) else { throw URLError(.badURL) }
-        var req = URLRequest(url: url)
-        req.httpMethod = method.rawValue
-        req.timeoutInterval = 30
-        if let token = accessToken {
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        if let slug = tenantSlug {
-            req.setValue(slug, forHTTPHeaderField: "X-Tenant-Slug")
-        }
-        if let body {
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try JSONEncoder().encode(body)
-        }
-        let (_, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
+        _ = try await rawData(path: path, method: method, body: body)
     }
 
     // MARK: Raw data helper (returns raw Data, auth-aware)
@@ -649,7 +630,20 @@ final class APIService {
 
     // MARK: Invoice PDF
     func downloadInvoicePDF(_ orderId: String) async throws -> Data {
-        return try await rawData(path: "/orders/\(orderId)/invoice.pdf", method: .get, body: nil)
+        let primary = try await rawInvoicePDFData(path: "/orders/\(orderId)/invoice.pdf")
+        if let primary {
+            return primary
+        }
+
+        if let fallback = try await rawInvoicePDFData(path: "/orders/\(orderId)/invoice") {
+            return fallback
+        }
+
+        throw NSError(
+            domain: "API",
+            code: 0,
+            userInfo: [NSLocalizedDescriptionKey: "The server did not return a valid PDF invoice."]
+        )
     }
 
     // MARK: Fetch Held Orders
@@ -786,8 +780,32 @@ final class APIService {
 
     // MARK: - Order Status Update
     func updateOrderStatus(_ orderId: String, body: StatusUpdate) async throws -> Order {
-        let data = try await rawData(path: "/orders/\(orderId)/status", method: .put, body: body)
-        return try decodeOrder(from: data)
+        let attempts: [(path: String, method: HTTPMethod)] = [
+            ("/orders/\(orderId)/status", .put),
+            ("/orders/\(orderId)/status", .patch),
+            ("/orders/\(orderId)/status", .post),
+            ("/orders/\(orderId)", .patch),
+            ("/orders/\(orderId)", .put)
+        ]
+
+        var lastError: Error?
+        for attempt in attempts {
+            do {
+                let data = try await rawData(path: attempt.path, method: attempt.method, body: body)
+                return try decodeOrder(from: data)
+            } catch {
+                lastError = error
+                guard shouldRetryOrderStatusRequest(after: error) else {
+                    throw error
+                }
+            }
+        }
+
+        throw lastError ?? NSError(
+            domain: "API",
+            code: 0,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to update order status."]
+        )
     }
 
     // MARK: - Menu CRUD
@@ -1040,7 +1058,58 @@ final class APIService {
     /// to ensure the status is at least "received". Errors are non-fatal and rethrown
     /// so callers can decide whether to surface them.
     func sendOrderToKitchen(_ orderId: String) async throws {
-        try await bumpKDSOrder(orderId, body: BumpOrder(status: "received"))
+        do {
+            _ = try await rawData(path: "/orders/\(orderId)/send-to-kitchen", method: .post, body: nil)
+        } catch {
+            guard shouldRetryOrderStatusRequest(after: error) else {
+                throw error
+            }
+            try await bumpKDSOrder(orderId, body: BumpOrder(status: "received"))
+        }
+        NotificationCenter.default.post(name: Notification.Name("kdsOrdersDidChange"), object: nil)
+    }
+
+    func activateDraftOrder(_ orderId: String) async throws -> Order {
+        do {
+            let updated = try await updateOrderStatus(orderId, body: StatusUpdate(status: "received"))
+            NotificationCenter.default.post(name: Notification.Name("kdsOrdersDidChange"), object: nil)
+            return updated
+        } catch {
+            try await sendOrderToKitchen(orderId)
+            return try await getOrder(orderId)
+        }
+    }
+
+    func transitionOrder(_ orderId: String, currentStatus: String, newStatus: String) async throws -> Order {
+        let normalizedCurrent = currentStatus.lowercased()
+        let normalizedTarget = newStatus.lowercased()
+
+        switch normalizedTarget {
+        case "preparing":
+            if normalizedCurrent == "draft" {
+                return try await activateDraftOrder(orderId)
+            }
+            if normalizedCurrent == "received" {
+                do {
+                    try await bumpKDSOrder(orderId, body: BumpOrder(status: "preparing"))
+                } catch {
+                    return try await updateOrderStatus(orderId, body: StatusUpdate(status: normalizedTarget))
+                }
+                NotificationCenter.default.post(name: Notification.Name("kdsOrdersDidChange"), object: nil)
+                return try await getOrder(orderId)
+            }
+            return try await updateOrderStatus(orderId, body: StatusUpdate(status: normalizedTarget))
+        case "ready" where normalizedCurrent == "preparing":
+            do {
+                try await bumpKDSOrder(orderId, body: BumpOrder(status: "ready"))
+            } catch {
+                return try await updateOrderStatus(orderId, body: StatusUpdate(status: normalizedTarget))
+            }
+            NotificationCenter.default.post(name: Notification.Name("kdsOrdersDidChange"), object: nil)
+            return try await getOrder(orderId)
+        default:
+            return try await updateOrderStatus(orderId, body: StatusUpdate(status: normalizedTarget))
+        }
     }
 
     // MARK: - Kitchen Stations
@@ -1171,5 +1240,27 @@ final class APIService {
     func fetchZATCAInvoices(skip: Int = 0, limit: Int = 50) async throws -> [[String: Any]] {
         let result = try await requestAny(path: "/zatca/invoices?skip=\(skip)&limit=\(limit)", method: .get, body: nil)
         return result as? [[String: Any]] ?? []
+    }
+
+    private func rawInvoicePDFData(path: String) async throws -> Data? {
+        do {
+            let data = try await rawData(path: path, method: .get, body: nil)
+            return isLikelyPDF(data) ? data : nil
+        } catch {
+            guard shouldRetryOrderStatusRequest(after: error) else {
+                throw error
+            }
+            return nil
+        }
+    }
+
+    private func shouldRetryOrderStatusRequest(after error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == "API" && [404, 405].contains(nsError.code)
+    }
+
+    private func isLikelyPDF(_ data: Data) -> Bool {
+        guard data.count >= 4 else { return false }
+        return String(data: data.prefix(4), encoding: .ascii) == "%PDF"
     }
 }

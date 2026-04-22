@@ -212,41 +212,114 @@ struct KitchenStationsSheet: View {
     private let api = APIService.shared
     private let l10n = L10n.shared
 
-    @State private var showAdd = false
+    @State private var isLoading = false
+    @State private var loadError: String?
 
     var body: some View {
-        NavigationView {
-            List {
-                ForEach(stations) { station in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(l10n.isArabic ? station.nameAr : station.nameEn)
-                                .font(AppTheme.body(15))
-                            Text("\(station.categoryIds?.count ?? 0) \(l10n.categories)")
-                                .font(AppTheme.caption(12)).foregroundColor(AppTheme.textMuted)
-                        }
-                        Spacer()
-                        if station.isActive == true {
-                            Circle().fill(AppTheme.success).frame(width: 8, height: 8)
-                        } else {
-                            Circle().fill(AppTheme.textMuted).frame(width: 8, height: 8)
+        CompatNavigationContainer {
+            ZStack {
+                AppTheme.bg.ignoresSafeArea()
+
+                if isLoading && stations.isEmpty {
+                    ProgressView()
+                } else if stations.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: loadError == nil ? "fork.knife.circle" : "exclamationmark.triangle")
+                            .font(.system(size: 40))
+                            .foregroundColor(loadError == nil ? AppTheme.textMuted : AppTheme.warning)
+                        Text(loadError ?? l10n.noData)
+                            .font(AppTheme.body(15))
+                            .foregroundColor(loadError == nil ? AppTheme.textMuted : AppTheme.warning)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                        Button {
+                            Task { await refreshStations() }
+                        } label: {
+                            Text(l10n.retry)
+                                .font(AppTheme.headline(13))
+                                .foregroundColor(AppTheme.accent)
                         }
                     }
-                }
-                .onDelete { indexSet in
-                    Task {
-                        for i in indexSet {
-                            try? await api.deleteKitchenStation(stations[i].id)
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 12) {
+                            ForEach(stations) { station in
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(l10n.isArabic ? station.nameAr : station.nameEn)
+                                            .font(AppTheme.body(15))
+                                            .foregroundColor(AppTheme.textPrimary)
+                                        Text("\(station.categoryIds?.count ?? 0) \(l10n.categories)")
+                                            .font(AppTheme.caption(12))
+                                            .foregroundColor(AppTheme.textMuted)
+                                    }
+                                    Spacer()
+                                    Circle()
+                                        .fill(station.isActive == true ? AppTheme.success : AppTheme.textMuted)
+                                        .frame(width: 10, height: 10)
+                                }
+                                .padding(14)
+                                .background(AppTheme.card)
+                                .cornerRadius(AppTheme.r12)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: AppTheme.r12)
+                                        .strokeBorder(AppTheme.border, lineWidth: 1)
+                                )
+                                .contextMenu {
+                                    Button(role: .destructive) {
+                                        Task { await deleteStation(station.id) }
+                                    } label: {
+                                        Label(l10n.delete, systemImage: "trash")
+                                    }
+                                }
+                            }
                         }
-                        stations = (try? await api.fetchKitchenStations()) ?? []
+                        .padding(20)
                     }
                 }
             }
             .navigationTitle(l10n.kitchenStations)
             .navigationBarTitleDisplayMode(.inline)
+            .compatSheetNavigationChrome()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(l10n.done) { dismiss() } }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await refreshStations() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
             }
+        }
+        .task {
+            if stations.isEmpty {
+                await refreshStations()
+            }
+        }
+    }
+
+    private func refreshStations() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            stations = try await api.fetchKitchenStations()
+            loadError = nil
+        } catch {
+            stations = []
+            loadError = error.localizedDescription
+        }
+    }
+
+    private func deleteStation(_ stationId: String) async {
+        do {
+            try await api.deleteKitchenStation(stationId)
+            stations.removeAll { $0.id == stationId }
+            if stations.isEmpty {
+                await refreshStations()
+            }
+        } catch {
+            loadError = error.localizedDescription
         }
     }
 }
