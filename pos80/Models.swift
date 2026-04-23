@@ -1928,6 +1928,82 @@ struct ProfitabilityRow: Codable, Identifiable {
     }
 }
 
+struct AccountingSummarySnapshot {
+    let totalRevenue: Double?
+    let totalExpenses: Double?
+    let netIncome: Double?
+    let totalAssets: Double?
+    let totalLiabilities: Double?
+    let totalEquity: Double?
+    let totalVat: Double?
+    let accountsCount: Int?
+    let journalEntriesCount: Int?
+}
+
+struct VATSummarySnapshot {
+    let taxableSales: Double?
+    let vatAmount: Double?
+    let exemptSales: Double?
+    let zeroRatedSales: Double?
+}
+
+struct TrialBalanceRow: Identifiable {
+    let accountId: String?
+    let accountCode: String?
+    let nameEn: String?
+    let nameAr: String?
+    let accountType: String?
+    let debit: Double?
+    let credit: Double?
+    let balance: Double?
+
+    var id: String {
+        accountId ?? accountCode ?? nameEn ?? nameAr ?? UUID().uuidString
+    }
+}
+
+struct ProfitLossSnapshot {
+    let revenue: Double?
+    let expenses: Double?
+    let netIncome: Double?
+}
+
+struct BalanceSheetSnapshot {
+    let assets: Double?
+    let liabilities: Double?
+    let equity: Double?
+}
+
+struct AccountingAccount: Identifiable {
+    let id: String
+    let accountCode: String?
+    let nameEn: String?
+    let nameAr: String?
+    let accountType: String?
+    let balance: Double?
+}
+
+struct JournalEntrySummary: Identifiable {
+    let id: String
+    let entryDate: String?
+    let description: String?
+    let reference: String?
+    let sourceType: String?
+    let totalDebit: Double?
+    let totalCredit: Double?
+}
+
+struct GeneralLedgerEntry: Identifiable {
+    let id: String
+    let entryDate: String?
+    let description: String?
+    let reference: String?
+    let sourceType: String?
+    let debit: Double?
+    let credit: Double?
+    let balance: Double?
+}
+
 // MARK: - Subscription
 struct SubscriptionInfo: Codable {
     let plan: String?

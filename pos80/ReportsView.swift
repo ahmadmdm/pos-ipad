@@ -16,6 +16,15 @@ struct ReportsView: View {
     @State private var monthlyReport: MonthlyReport?
     @State private var profitabilityRows: [ProfitabilityRow] = []
     @State private var ordersReport: [Order] = []
+    @State private var accountingSummary: AccountingSummarySnapshot?
+    @State private var vatSummary: VATSummarySnapshot?
+    @State private var trialBalance: [TrialBalanceRow] = []
+    @State private var profitLoss: ProfitLossSnapshot?
+    @State private var balanceSheet: BalanceSheetSnapshot?
+    @State private var accountingAccounts: [AccountingAccount] = []
+    @State private var journalEntries: [JournalEntrySummary] = []
+    @State private var generalLedger: [GeneralLedgerEntry] = []
+    @State private var selectedLedgerAccountId: String?
     @State private var managerOverrideToken: String?
     @State private var managerApproverName: String?
     @State private var showManagerApproval = false
@@ -34,6 +43,9 @@ struct ReportsView: View {
     private var hasNativeReportAccess: Bool { appState.currentUser?.isManager ?? false }
     private var hasUnlockedReports: Bool { hasNativeReportAccess || managerOverrideToken != nil }
     private var reportAccessToken: String? { hasNativeReportAccess ? nil : managerOverrideToken }
+    private var hasAccountingData: Bool {
+        accountingSummary != nil || vatSummary != nil || profitLoss != nil || balanceSheet != nil || !trialBalance.isEmpty || !journalEntries.isEmpty || !generalLedger.isEmpty
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -671,6 +683,10 @@ struct ReportsView: View {
             }
             .padding(.horizontal, 24)
 
+            if hasAccountingData {
+                accountingOverviewSection
+            }
+
             if !profitabilityRows.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(L10n.shared.profitabilityReport)
@@ -746,6 +762,189 @@ struct ReportsView: View {
         .padding(.top, 20)
     }
 
+    private var accountingOverviewSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(L10n.shared.accountingOverview)
+                .font(AppTheme.headline())
+                .foregroundColor(AppTheme.textPrimary)
+
+            if accountingSummary != nil || profitLoss != nil {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    accountingMetricCard(title: L10n.shared.revenue, value: (profitLoss?.revenue ?? accountingSummary?.totalRevenue ?? 0).sarFormatted, color: AppTheme.accent)
+                    accountingMetricCard(title: L10n.shared.expenses, value: (profitLoss?.expenses ?? accountingSummary?.totalExpenses ?? 0).sarFormatted, color: AppTheme.warning)
+                    accountingMetricCard(title: L10n.shared.netIncome, value: (profitLoss?.netIncome ?? accountingSummary?.netIncome ?? 0).sarFormatted, color: AppTheme.success)
+                }
+            }
+
+            if accountingSummary != nil || balanceSheet != nil {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    accountingMetricCard(title: L10n.shared.assets, value: (balanceSheet?.assets ?? accountingSummary?.totalAssets ?? 0).sarFormatted, color: AppTheme.info)
+                    accountingMetricCard(title: L10n.shared.liabilities, value: (balanceSheet?.liabilities ?? accountingSummary?.totalLiabilities ?? 0).sarFormatted, color: AppTheme.danger)
+                    accountingMetricCard(title: L10n.shared.equity, value: (balanceSheet?.equity ?? accountingSummary?.totalEquity ?? 0).sarFormatted, color: AppTheme.success)
+                }
+            }
+
+            if let vatSummary {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                    accountingMetricCard(title: L10n.shared.taxableSales, value: (vatSummary.taxableSales ?? 0).sarFormatted, color: AppTheme.info)
+                    accountingMetricCard(title: L10n.shared.vat, value: (vatSummary.vatAmount ?? accountingSummary?.totalVat ?? 0).sarFormatted, color: AppTheme.warning)
+                    accountingMetricCard(title: L10n.shared.exemptSales, value: (vatSummary.exemptSales ?? 0).sarFormatted, color: AppTheme.textSecondary)
+                    accountingMetricCard(title: L10n.shared.zeroRatedSales, value: (vatSummary.zeroRatedSales ?? 0).sarFormatted, color: AppTheme.accent)
+                }
+            }
+
+            if !trialBalance.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(L10n.shared.trialBalance)
+                        .font(AppTheme.caption(12))
+                        .foregroundColor(AppTheme.textMuted)
+
+                    ForEach(Array(trialBalance.prefix(6))) { row in
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(accountingRowTitle(row))
+                                    .font(AppTheme.caption(13))
+                                    .foregroundColor(AppTheme.textPrimary)
+                                Text(row.accountCode ?? row.accountType ?? L10n.shared.account)
+                                    .font(AppTheme.caption(11))
+                                    .foregroundColor(AppTheme.textMuted)
+                            }
+
+                            Spacer()
+
+                            VStack(alignment: .trailing, spacing: 4) {
+                                Text("\(L10n.shared.debit): \((row.debit ?? 0).sarFormatted)")
+                                    .font(AppTheme.caption(11))
+                                    .foregroundColor(AppTheme.textSecondary)
+                                Text("\(L10n.shared.credit): \((row.credit ?? 0).sarFormatted)")
+                                    .font(AppTheme.caption(11))
+                                    .foregroundColor(AppTheme.textSecondary)
+                                Text("\(L10n.shared.balance): \((row.balance ?? 0).sarFormatted)")
+                                    .font(AppTheme.mono(12))
+                                    .foregroundColor(AppTheme.accent)
+                            }
+                        }
+                        .padding(12)
+                        .background(AppTheme.card)
+                        .cornerRadius(AppTheme.r12)
+                    }
+                }
+            }
+
+            if !journalEntries.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(L10n.shared.journalEntries)
+                        .font(AppTheme.caption(12))
+                        .foregroundColor(AppTheme.textMuted)
+
+                    ForEach(Array(journalEntries.prefix(5))) { entry in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .top) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(entry.description ?? entry.reference ?? "-")
+                                        .font(AppTheme.caption(13))
+                                        .foregroundColor(AppTheme.textPrimary)
+                                    Text(entry.entryDate ?? entry.sourceType ?? "-")
+                                        .font(AppTheme.caption(11))
+                                        .foregroundColor(AppTheme.textMuted)
+                                }
+                                Spacer()
+                                VStack(alignment: .trailing, spacing: 4) {
+                                    Text("\(L10n.shared.debit): \((entry.totalDebit ?? 0).sarFormatted)")
+                                        .font(AppTheme.caption(11))
+                                        .foregroundColor(AppTheme.textSecondary)
+                                    Text("\(L10n.shared.credit): \((entry.totalCredit ?? 0).sarFormatted)")
+                                        .font(AppTheme.caption(11))
+                                        .foregroundColor(AppTheme.textSecondary)
+                                }
+                            }
+
+                            if let reference = entry.reference, !reference.isEmpty {
+                                Text("\(L10n.shared.reference): \(reference)")
+                                    .font(AppTheme.caption(11))
+                                    .foregroundColor(AppTheme.textMuted)
+                            }
+                        }
+                        .padding(12)
+                        .background(AppTheme.card)
+                        .cornerRadius(AppTheme.r12)
+                    }
+                }
+            }
+
+            if !accountingAccounts.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(L10n.shared.generalLedger)
+                        .font(AppTheme.caption(12))
+                        .foregroundColor(AppTheme.textMuted)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(accountingAccounts.prefix(10)) { account in
+                                Button {
+                                    selectedLedgerAccountId = account.id
+                                    Task { await loadGeneralLedger(for: account.id) }
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(accountingAccountTitle(account))
+                                            .font(AppTheme.caption(12))
+                                        Text(account.accountCode ?? L10n.shared.account)
+                                            .font(AppTheme.caption(10))
+                                    }
+                                    .foregroundColor(selectedLedgerAccountId == account.id ? .white : AppTheme.textPrimary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(selectedLedgerAccountId == account.id ? AppTheme.accent : AppTheme.card)
+                                    .cornerRadius(12)
+                                }
+                            }
+                        }
+                    }
+
+                    if generalLedger.isEmpty {
+                        Text(L10n.shared.noAccountingData)
+                            .font(AppTheme.caption(11))
+                            .foregroundColor(AppTheme.textMuted)
+                    } else {
+                        ForEach(Array(generalLedger.prefix(6))) { entry in
+                            HStack(alignment: .top, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(entry.description ?? entry.reference ?? "-")
+                                        .font(AppTheme.caption(13))
+                                        .foregroundColor(AppTheme.textPrimary)
+                                    Text(entry.entryDate ?? entry.sourceType ?? "-")
+                                        .font(AppTheme.caption(11))
+                                        .foregroundColor(AppTheme.textMuted)
+                                }
+                                Spacer()
+                                VStack(alignment: .trailing, spacing: 4) {
+                                    Text("\(L10n.shared.debit): \((entry.debit ?? 0).sarFormatted)")
+                                        .font(AppTheme.caption(11))
+                                        .foregroundColor(AppTheme.textSecondary)
+                                    Text("\(L10n.shared.credit): \((entry.credit ?? 0).sarFormatted)")
+                                        .font(AppTheme.caption(11))
+                                        .foregroundColor(AppTheme.textSecondary)
+                                    Text("\(L10n.shared.balance): \((entry.balance ?? 0).sarFormatted)")
+                                        .font(AppTheme.mono(12))
+                                        .foregroundColor(AppTheme.accent)
+                                }
+                            }
+                            .padding(12)
+                            .background(AppTheme.card)
+                            .cornerRadius(AppTheme.r12)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .background(AppTheme.surface)
+        .cornerRadius(AppTheme.r16)
+        .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
+            .strokeBorder(AppTheme.border, lineWidth: 1))
+        .padding(.horizontal, 24)
+    }
+
     private func reportSnapshotCard(title: String, value: String, subtitle: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
@@ -766,6 +965,35 @@ struct ReportsView: View {
             .strokeBorder(AppTheme.border, lineWidth: 1))
     }
 
+    private func accountingMetricCard(title: String, value: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(AppTheme.caption(12))
+                .foregroundColor(AppTheme.textMuted)
+            Text(value)
+                .font(AppTheme.title2())
+                .foregroundColor(AppTheme.textPrimary)
+            Rectangle()
+                .fill(color.opacity(0.2))
+                .frame(width: 28, height: 4)
+                .cornerRadius(999)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(AppTheme.card)
+        .cornerRadius(AppTheme.r16)
+        .overlay(RoundedRectangle(cornerRadius: AppTheme.r16)
+            .strokeBorder(AppTheme.border, lineWidth: 1))
+    }
+
+    private func accountingRowTitle(_ row: TrialBalanceRow) -> String {
+        isArabic ? (row.nameAr ?? row.nameEn ?? row.accountCode ?? "-") : (row.nameEn ?? row.nameAr ?? row.accountCode ?? "-")
+    }
+
+    private func accountingAccountTitle(_ account: AccountingAccount) -> String {
+        isArabic ? (account.nameAr ?? account.nameEn ?? account.accountCode ?? "-") : (account.nameEn ?? account.nameAr ?? account.accountCode ?? "-")
+    }
+
     // MARK: - Data Loading
     private func loadData() async {
         isLoading = true
@@ -776,6 +1004,14 @@ struct ReportsView: View {
         monthlyReport = nil
         profitabilityRows = []
         ordersReport = []
+        accountingSummary = nil
+        vatSummary = nil
+        trialBalance = []
+        profitLoss = nil
+        balanceSheet = nil
+        accountingAccounts = []
+        journalEntries = []
+        generalLedger = []
 
         // Fetch dashboard first — if it fails the remaining requests are skipped,
         // avoiding the async-let implicit-cancellation deallocation crash.
@@ -809,6 +1045,13 @@ struct ReportsView: View {
         async let monthlyTask = try? api.fetchMonthlyReport()
         async let profitabilityTask = try? api.fetchProfitabilityReport(range: selectedRange)
         async let ordersTask = try? api.fetchOrdersReport(range: selectedRange, skip: 0, limit: 20)
+        async let accountingSummaryTask = try? api.fetchAccountingSummary(range: selectedRange, authToken: reportAccessToken)
+        async let vatTask = try? api.fetchVATSummary(range: selectedRange, authToken: reportAccessToken)
+        async let trialBalanceTask = try? api.fetchTrialBalance(range: selectedRange, authToken: reportAccessToken)
+        async let profitLossTask = try? api.fetchProfitLoss(range: selectedRange, authToken: reportAccessToken)
+        async let balanceSheetTask = try? api.fetchBalanceSheet(range: selectedRange, authToken: reportAccessToken)
+        async let accountsTask = try? api.fetchAccountingAccounts(authToken: reportAccessToken)
+        async let journalEntriesTask = try? api.fetchJournalEntries(range: selectedRange, authToken: reportAccessToken)
 
         paymentsSummary = await paymentsTask ?? []
         zatcaReport = await zatcaTask
@@ -817,8 +1060,28 @@ struct ReportsView: View {
         monthlyReport = await monthlyTask
         profitabilityRows = await profitabilityTask ?? []
         ordersReport = await ordersTask ?? []
+        accountingSummary = await accountingSummaryTask
+        vatSummary = await vatTask
+        trialBalance = await trialBalanceTask ?? []
+        profitLoss = await profitLossTask
+        balanceSheet = await balanceSheetTask
+        accountingAccounts = await accountsTask ?? []
+        journalEntries = await journalEntriesTask ?? []
+
+        let preferredAccountId = selectedLedgerAccountId.flatMap { current in
+            accountingAccounts.contains(where: { $0.id == current }) ? current : nil
+        } ?? accountingAccounts.first?.id
+        selectedLedgerAccountId = preferredAccountId
+
+        if let preferredAccountId {
+            generalLedger = (try? await api.fetchGeneralLedger(accountId: preferredAccountId, range: selectedRange, authToken: reportAccessToken)) ?? []
+        }
 
         isLoading = false
+    }
+
+    private func loadGeneralLedger(for accountId: String) async {
+        generalLedger = (try? await api.fetchGeneralLedger(accountId: accountId, range: selectedRange, authToken: reportAccessToken)) ?? []
     }
 
     private func reloadIfAuthorized() async {
@@ -831,6 +1094,15 @@ struct ReportsView: View {
             monthlyReport = nil
             profitabilityRows = []
             ordersReport = []
+            accountingSummary = nil
+            vatSummary = nil
+            trialBalance = []
+            profitLoss = nil
+            balanceSheet = nil
+            accountingAccounts = []
+            journalEntries = []
+            generalLedger = []
+            selectedLedgerAccountId = nil
             errorMessage = nil
             return
         }

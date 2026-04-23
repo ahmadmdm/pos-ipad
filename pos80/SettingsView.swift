@@ -1305,6 +1305,7 @@ struct SecuritySettingsSection: View {
     private let l10n = L10n.shared
     @State private var setupResponse: TwoFASetupResponse?
     @State private var verificationCode = ""
+    @State private var disableTwoFAPassword = ""
     @State private var currentPassword = ""
     @State private var newPassword = ""
     @State private var confirmPassword = ""
@@ -1386,28 +1387,36 @@ struct SecuritySettingsSection: View {
                         .padding(.horizontal, 20)
                         .padding(.vertical, 16)
 
-                        HStack {
-                            Spacer()
-                            Button {
-                                Task { await disable2FA() }
-                            } label: {
-                                Text(l10n.disable2FA)
-                                    .font(AppTheme.caption(13))
-                                    .foregroundColor(AppTheme.danger)
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(l10n.confirmPasswordToDisable2FA)
+                                .font(AppTheme.caption(12))
+                                .foregroundColor(AppTheme.textMuted)
+
+                            ThemeSecureField(icon: "lock.fill", placeholder: l10n.currentPassword, text: $disableTwoFAPassword)
+
+                            HStack {
+                                Spacer()
+                                Button {
+                                    Task { await disable2FA() }
+                                } label: {
+                                    Text(l10n.disable2FA)
+                                        .font(AppTheme.caption(13))
+                                        .foregroundColor(AppTheme.danger)
+                                }
+                                .disabled(isLoading2FA || disableTwoFAPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             }
-                            .disabled(isLoading2FA)
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 16)
                         }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 16)
                     }
                 }
             }
 
             SettingsCard(title: l10n.changePassword, subtitle: nil, icon: "key.fill", color: AppTheme.warning) {
                 VStack(spacing: 16) {
-                    ThemeTextField(icon: "lock.fill", placeholder: l10n.currentPassword, text: $currentPassword)
-                    ThemeTextField(icon: "lock.fill", placeholder: l10n.newPassword, text: $newPassword)
-                    ThemeTextField(icon: "lock.fill", placeholder: l10n.confirmPassword, text: $confirmPassword)
+                    ThemeSecureField(icon: "lock.fill", placeholder: l10n.currentPassword, text: $currentPassword)
+                    ThemeSecureField(icon: "lock.fill", placeholder: l10n.newPassword, text: $newPassword)
+                    ThemeSecureField(icon: "lock.fill", placeholder: l10n.confirmPassword, text: $confirmPassword)
 
                     Button {
                         Task { await changePasswordAction() }
@@ -1455,12 +1464,18 @@ struct SecuritySettingsSection: View {
     }
 
     private func disable2FA() async {
+        let password = disableTwoFAPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !password.isEmpty else {
+            appState.showError(l10n.currentPasswordRequired)
+            return
+        }
         isLoading2FA = true
         defer { isLoading2FA = false }
         do {
-            try await api.disable2FA()
+            try await api.disable2FA(currentPassword: password)
             setupResponse = nil
             verificationCode = ""
+            disableTwoFAPassword = ""
             appState.showSuccess(l10n.twoFADisableSuccess)
         } catch {
             appState.showError(error.localizedDescription)
@@ -1483,6 +1498,32 @@ struct SecuritySettingsSection: View {
         } catch {
             appState.showError(error.localizedDescription)
         }
+    }
+}
+
+private struct ThemeSecureField: View {
+    let icon: String
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .foregroundColor(AppTheme.textMuted)
+                .frame(width: 20)
+            SecureField(placeholder, text: $text)
+                .font(AppTheme.body())
+                .foregroundColor(AppTheme.textPrimary)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(AppTheme.card)
+        .cornerRadius(AppTheme.r12)
+        .overlay(RoundedRectangle(cornerRadius: AppTheme.r12)
+            .strokeBorder(AppTheme.border, lineWidth: 1))
+        .shadow(color: AppTheme.shadow.opacity(0.5), radius: 10, y: 4)
     }
 }
 

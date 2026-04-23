@@ -321,6 +321,63 @@ final class APIService {
         return try JSONSerialization.jsonObject(with: data)
     }
 
+    private func shouldRetryContractFallback(after error: Error) -> Bool {
+        let nsError = error as NSError
+        guard nsError.domain == "API" else { return false }
+        return nsError.code == 404 || nsError.code == 405
+    }
+
+    private func requestWithContractFallback<T: Decodable>(
+        attempts: [(path: String, method: HTTPMethod)],
+        body: Encodable? = nil
+    ) async throws -> T {
+        var lastError: Error?
+        let decoder = JSONDecoder()
+
+        for attempt in attempts {
+            do {
+                let data = try await rawData(path: attempt.path, method: attempt.method, body: body)
+                return try decoder.decode(T.self, from: data)
+            } catch {
+                lastError = error
+                guard shouldRetryContractFallback(after: error) else {
+                    throw error
+                }
+            }
+        }
+
+        throw lastError ?? NSError(
+            domain: "API",
+            code: 0,
+            userInfo: [NSLocalizedDescriptionKey: "No compatible API contract attempt succeeded."]
+        )
+    }
+
+    private func requestVoidWithContractFallback(
+        attempts: [(path: String, method: HTTPMethod)],
+        body: Encodable? = nil
+    ) async throws {
+        var lastError: Error?
+
+        for attempt in attempts {
+            do {
+                _ = try await rawData(path: attempt.path, method: attempt.method, body: body)
+                return
+            } catch {
+                lastError = error
+                guard shouldRetryContractFallback(after: error) else {
+                    throw error
+                }
+            }
+        }
+
+        throw lastError ?? NSError(
+            domain: "API",
+            code: 0,
+            userInfo: [NSLocalizedDescriptionKey: "No compatible API contract attempt succeeded."]
+        )
+    }
+
     // MARK: Token refresh
     private func refreshAccessToken(_ token: String) async throws {
         struct RefreshReq: Codable { let refresh_token: String }
@@ -599,6 +656,46 @@ final class APIService {
         return try await request(path: "/reports/top-products?limit=\(limit)&range=\(range)", accessTokenOverride: authToken)
     }
 
+    func fetchAccountingSummary(range: String = "7d", authToken: String? = nil) async throws -> AccountingSummarySnapshot {
+        let payload = try await jsonObject(path: "/accounting/summary?\(accountingDateRangeQuery(range: range))", accessTokenOverride: authToken)
+        return parseAccountingSummary(from: payload)
+    }
+
+    func fetchVATSummary(range: String = "7d", authToken: String? = nil) async throws -> VATSummarySnapshot {
+        let payload = try await jsonObject(path: "/accounting/vat-summary?\(accountingDateRangeQuery(range: range))", accessTokenOverride: authToken)
+        return parseVATSummary(from: payload)
+    }
+
+    func fetchTrialBalance(range: String = "7d", authToken: String? = nil) async throws -> [TrialBalanceRow] {
+        let payload = try await jsonObject(path: "/accounting/trial-balance?\(accountingDateRangeQuery(range: range))", accessTokenOverride: authToken)
+        return dictionaryArray(in: payload, matching: ["trial_balance", "rows", "accounts", "items", "data"]).map(parseTrialBalanceRow)
+    }
+
+    func fetchProfitLoss(range: String = "7d", authToken: String? = nil) async throws -> ProfitLossSnapshot {
+        let payload = try await jsonObject(path: "/accounting/profit-loss?\(accountingDateRangeQuery(range: range))", accessTokenOverride: authToken)
+        return parseProfitLoss(from: payload)
+    }
+
+    func fetchBalanceSheet(range: String = "7d", authToken: String? = nil) async throws -> BalanceSheetSnapshot {
+        let payload = try await jsonObject(path: "/accounting/balance-sheet?as_of=\(accountingDateString(for: Date()))", accessTokenOverride: authToken)
+        return parseBalanceSheet(from: payload)
+    }
+
+    func fetchAccountingAccounts(authToken: String? = nil) async throws -> [AccountingAccount] {
+        let payload = try await jsonObject(path: "/accounting/accounts", accessTokenOverride: authToken)
+        return dictionaryArray(in: payload, matching: ["accounts", "rows", "items", "data"]).map(parseAccountingAccount)
+    }
+
+    func fetchJournalEntries(range: String = "7d", authToken: String? = nil) async throws -> [JournalEntrySummary] {
+        let payload = try await jsonObject(path: "/accounting/journal-entries?\(accountingDateRangeQuery(range: range))&limit=50", accessTokenOverride: authToken)
+        return dictionaryArray(in: payload, matching: ["journal_entries", "entries", "rows", "items", "data"]).map(parseJournalEntry)
+    }
+
+    func fetchGeneralLedger(accountId: String, range: String = "7d", authToken: String? = nil) async throws -> [GeneralLedgerEntry] {
+        let payload = try await jsonObject(path: "/accounting/general-ledger?account_id=\(accountId)&\(accountingDateRangeQuery(range: range))", accessTokenOverride: authToken)
+        return dictionaryArray(in: payload, matching: ["ledger", "entries", "transactions", "rows", "items", "data"]).map(parseGeneralLedgerEntry)
+    }
+
     // MARK: Settings
     func fetchSettings() async throws -> AppSettings {
         return try await request(path: "/settings")
@@ -666,6 +763,23 @@ final class APIService {
         return "date_from=\(from)&date_to=\(to)"
     }
 
+    private func accountingDateRangeQuery(range: String) -> String {
+        let now = Date()
+        let start = reportStartDate(for: range, now: now)
+        let from = accountingDateString(for: start)
+        let to = accountingDateString(for: now)
+        return "from_date=\(from)&to_date=\(to)"
+    }
+
+    private func accountingDateString(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
     private func reportStartDate(for range: String, now: Date) -> Date {
         let calendar = Calendar(identifier: .gregorian)
         switch range {
@@ -678,6 +792,20 @@ final class APIService {
         default:
             return calendar.date(byAdding: .day, value: -7, to: now) ?? now
         }
+    }
+
+    private func defaultReportDayString() -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date())
+    }
+
+    private func defaultReportYearMonth() -> (year: Int, month: Int) {
+        let components = Calendar(identifier: .gregorian).dateComponents([.year, .month], from: Date())
+        return (components.year ?? 1970, components.month ?? 1)
     }
 
     private func decodeFlexible<T: Decodable>(_ type: T.Type, from data: Data, rootKeys: [String]) throws -> T {
@@ -720,6 +848,205 @@ final class APIService {
         return []
     }
 
+    private func jsonObject(path: String, accessTokenOverride: String? = nil) async throws -> Any {
+        let data = try await rawData(path: path, method: .get, body: nil, accessTokenOverride: accessTokenOverride)
+        guard !data.isEmpty else { return [:] }
+        return try JSONSerialization.jsonObject(with: data)
+    }
+
+    private func parseAccountingSummary(from payload: Any) -> AccountingSummarySnapshot {
+        AccountingSummarySnapshot(
+            totalRevenue: doubleValue(from: value(in: payload, matching: ["total_revenue", "revenue", "sales", "sales_total"])),
+            totalExpenses: doubleValue(from: value(in: payload, matching: ["total_expenses", "expenses", "expense_total"])),
+            netIncome: doubleValue(from: value(in: payload, matching: ["net_income", "net_profit", "profit", "profit_loss"])),
+            totalAssets: doubleValue(from: value(in: payload, matching: ["total_assets", "assets"])),
+            totalLiabilities: doubleValue(from: value(in: payload, matching: ["total_liabilities", "liabilities"])),
+            totalEquity: doubleValue(from: value(in: payload, matching: ["total_equity", "equity"])),
+            totalVat: doubleValue(from: value(in: payload, matching: ["total_vat", "vat_amount", "vat"])),
+            accountsCount: intValue(from: value(in: payload, matching: ["accounts_count", "total_accounts"])),
+            journalEntriesCount: intValue(from: value(in: payload, matching: ["journal_entries_count", "entries_count", "total_entries"]))
+        )
+    }
+
+    private func parseVATSummary(from payload: Any) -> VATSummarySnapshot {
+        VATSummarySnapshot(
+            taxableSales: doubleValue(from: value(in: payload, matching: ["taxable_sales", "taxable_amount", "sales_taxable"])),
+            vatAmount: doubleValue(from: value(in: payload, matching: ["vat_amount", "total_vat", "vat"])),
+            exemptSales: doubleValue(from: value(in: payload, matching: ["exempt_sales", "non_taxable_sales", "untaxed_sales"])),
+            zeroRatedSales: doubleValue(from: value(in: payload, matching: ["zero_rated_sales", "zero_rated", "zero_tax_sales"]))
+        )
+    }
+
+    private func parseTrialBalanceRow(_ row: [String: Any]) -> TrialBalanceRow {
+        TrialBalanceRow(
+            accountId: stringValue(from: value(in: row, matching: ["account_id", "id"])),
+            accountCode: stringValue(from: value(in: row, matching: ["account_code", "code"])),
+            nameEn: stringValue(from: value(in: row, matching: ["name_en", "account_name_en", "account_name", "name"])),
+            nameAr: stringValue(from: value(in: row, matching: ["name_ar", "account_name_ar"])),
+            accountType: stringValue(from: value(in: row, matching: ["account_type", "type"])),
+            debit: doubleValue(from: value(in: row, matching: ["debit", "debit_total", "total_debit"])),
+            credit: doubleValue(from: value(in: row, matching: ["credit", "credit_total", "total_credit"])),
+            balance: doubleValue(from: value(in: row, matching: ["balance", "closing_balance", "net_balance"]))
+        )
+    }
+
+    private func parseProfitLoss(from payload: Any) -> ProfitLossSnapshot {
+        ProfitLossSnapshot(
+            revenue: doubleValue(from: value(in: payload, matching: ["revenue", "total_revenue"])),
+            expenses: doubleValue(from: value(in: payload, matching: ["expenses", "total_expenses"])),
+            netIncome: doubleValue(from: value(in: payload, matching: ["net_income", "net_profit", "profit"]))
+        )
+    }
+
+    private func parseBalanceSheet(from payload: Any) -> BalanceSheetSnapshot {
+        BalanceSheetSnapshot(
+            assets: doubleValue(from: value(in: payload, matching: ["assets", "total_assets"])),
+            liabilities: doubleValue(from: value(in: payload, matching: ["liabilities", "total_liabilities"])),
+            equity: doubleValue(from: value(in: payload, matching: ["equity", "total_equity"]))
+        )
+    }
+
+    private func parseAccountingAccount(_ row: [String: Any]) -> AccountingAccount {
+        AccountingAccount(
+            id: stringValue(from: value(in: row, matching: ["account_id", "id"])) ?? UUID().uuidString,
+            accountCode: stringValue(from: value(in: row, matching: ["account_code", "code"])),
+            nameEn: stringValue(from: value(in: row, matching: ["name_en", "account_name_en", "account_name", "name"])),
+            nameAr: stringValue(from: value(in: row, matching: ["name_ar", "account_name_ar"])),
+            accountType: stringValue(from: value(in: row, matching: ["account_type", "type"])),
+            balance: doubleValue(from: value(in: row, matching: ["balance", "closing_balance", "net_balance"]))
+        )
+    }
+
+    private func parseJournalEntry(_ row: [String: Any]) -> JournalEntrySummary {
+        JournalEntrySummary(
+            id: stringValue(from: value(in: row, matching: ["entry_id", "id"])) ?? UUID().uuidString,
+            entryDate: stringValue(from: value(in: row, matching: ["entry_date", "date", "created_at"])),
+            description: stringValue(from: value(in: row, matching: ["description", "notes"])),
+            reference: stringValue(from: value(in: row, matching: ["reference", "ref"])),
+            sourceType: stringValue(from: value(in: row, matching: ["source_type", "source"])),
+            totalDebit: doubleValue(from: value(in: row, matching: ["total_debit", "debit"])),
+            totalCredit: doubleValue(from: value(in: row, matching: ["total_credit", "credit"]))
+        )
+    }
+
+    private func parseGeneralLedgerEntry(_ row: [String: Any]) -> GeneralLedgerEntry {
+        GeneralLedgerEntry(
+            id: stringValue(from: value(in: row, matching: ["entry_id", "id"])) ?? UUID().uuidString,
+            entryDate: stringValue(from: value(in: row, matching: ["entry_date", "date", "created_at"])),
+            description: stringValue(from: value(in: row, matching: ["description", "notes"])),
+            reference: stringValue(from: value(in: row, matching: ["reference", "ref"])),
+            sourceType: stringValue(from: value(in: row, matching: ["source_type", "source"])),
+            debit: doubleValue(from: value(in: row, matching: ["debit", "total_debit"])),
+            credit: doubleValue(from: value(in: row, matching: ["credit", "total_credit"])),
+            balance: doubleValue(from: value(in: row, matching: ["balance", "running_balance", "closing_balance"]))
+        )
+    }
+
+    private func dictionaryArray(in object: Any, matching keys: [String]) -> [[String: Any]] {
+        if let array = object as? [Any] {
+            let rows = array.compactMap { $0 as? [String: Any] }
+            if rows.count == array.count, !rows.isEmpty {
+                return rows
+            }
+            for value in array {
+                let nested = dictionaryArray(in: value, matching: keys)
+                if !nested.isEmpty {
+                    return nested
+                }
+            }
+        }
+
+        guard let dict = object as? [String: Any] else {
+            return []
+        }
+
+        let normalizedKeys = Set(keys.map(normalizedJSONKey))
+        for (key, value) in dict {
+            if normalizedKeys.contains(normalizedJSONKey(key)), let array = value as? [Any] {
+                let rows = array.compactMap { $0 as? [String: Any] }
+                if !rows.isEmpty {
+                    return rows
+                }
+            }
+        }
+
+        for value in dict.values {
+            let nested = dictionaryArray(in: value, matching: keys)
+            if !nested.isEmpty {
+                return nested
+            }
+        }
+
+        return []
+    }
+
+    private func value(in object: Any, matching keys: [String]) -> Any? {
+        value(in: object, matching: Set(keys.map(normalizedJSONKey)))
+    }
+
+    private func value(in object: Any, matching normalizedKeys: Set<String>) -> Any? {
+        if let dict = object as? [String: Any] {
+            for (key, value) in dict where normalizedKeys.contains(normalizedJSONKey(key)) {
+                return value
+            }
+            for nestedValue in dict.values {
+                if let nested = value(in: nestedValue, matching: normalizedKeys) {
+                    return nested
+                }
+            }
+        } else if let array = object as? [Any] {
+            for nestedValue in array {
+                if let nested = value(in: nestedValue, matching: normalizedKeys) {
+                    return nested
+                }
+            }
+        }
+        return nil
+    }
+
+    private func normalizedJSONKey(_ key: String) -> String {
+        key.replacingOccurrences(of: "[^A-Za-z0-9]", with: "", options: .regularExpression)
+            .lowercased()
+    }
+
+    private func stringValue(from value: Any?) -> String? {
+        switch value {
+        case let string as String:
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        case let number as NSNumber:
+            return number.stringValue
+        default:
+            return nil
+        }
+    }
+
+    private func doubleValue(from value: Any?) -> Double? {
+        switch value {
+        case nil, is Bool:
+            return nil
+        case let number as NSNumber:
+            return number.doubleValue
+        case let string as String:
+            return Double(string.trimmingCharacters(in: .whitespacesAndNewlines))
+        default:
+            return nil
+        }
+    }
+
+    private func intValue(from value: Any?) -> Int? {
+        switch value {
+        case nil, is Bool:
+            return nil
+        case let number as NSNumber:
+            return number.intValue
+        case let string as String:
+            return Int(string.trimmingCharacters(in: .whitespacesAndNewlines))
+        default:
+            return nil
+        }
+    }
+
     // ╔══════════════════════════════════════════════════════════════════╗
     // ║  NEW API v2.2 ENDPOINTS                                         ║
     // ╚══════════════════════════════════════════════════════════════════╝
@@ -741,8 +1068,12 @@ final class APIService {
         return try await request(path: "/auth/2fa/setup", method: .post)
     }
 
-    func disable2FA() async throws {
-        try await requestVoid(path: "/auth/2fa/disable", method: .post)
+    func disable2FA(currentPassword: String) async throws {
+        let confirmation = ChangePasswordRequest(currentPassword: currentPassword, newPassword: currentPassword)
+        try await requestVoidWithContractFallback(attempts: [
+            (path: "/auth/2fa/disable", method: .delete),
+            (path: "/auth/2fa/disable", method: .post)
+        ], body: confirmation)
     }
 
     func changePassword(_ body: ChangePasswordRequest) async throws {
@@ -763,7 +1094,10 @@ final class APIService {
     }
 
     func updateStaff(_ id: String, body: StaffUpdate) async throws -> Staff {
-        return try await request(path: "/staff/\(id)", method: .put, body: body)
+        return try await requestWithContractFallback(attempts: [
+            (path: "/staff/\(id)", method: .patch),
+            (path: "/staff/\(id)", method: .put)
+        ], body: body)
     }
 
     func deleteStaff(_ id: String) async throws {
@@ -771,11 +1105,17 @@ final class APIService {
     }
 
     func updateStaffPin(_ id: String, body: PinUpdate) async throws {
-        try await requestVoid(path: "/staff/\(id)/pin", method: .put, body: body)
+        try await requestVoidWithContractFallback(attempts: [
+            (path: "/staff/\(id)/pin", method: .patch),
+            (path: "/staff/\(id)/pin", method: .put)
+        ], body: body)
     }
 
     func fetchStaffShiftHistory(_ id: String) async throws -> [Shift] {
-        return try await request(path: "/staff/\(id)/shift-history")
+        return try await requestWithContractFallback(attempts: [
+            (path: "/staff/\(id)/shifts", method: .get),
+            (path: "/staff/\(id)/shift-history", method: .get)
+        ])
     }
 
     // MARK: - Order Status Update
@@ -909,7 +1249,10 @@ final class APIService {
     }
 
     func updateTable(_ id: String, body: TableUpdate) async throws -> RestaurantTable {
-        return try await request(path: "/tables/\(id)", method: .put, body: body)
+        return try await requestWithContractFallback(attempts: [
+            (path: "/tables/\(id)", method: .patch),
+            (path: "/tables/\(id)", method: .put)
+        ], body: body)
     }
 
     func deleteTable(_ id: String) async throws {
@@ -917,7 +1260,10 @@ final class APIService {
     }
 
     func updateTablePosition(_ id: String, body: TablePositionUpdate) async throws {
-        try await requestVoid(path: "/tables/\(id)/position", method: .put, body: body)
+        try await requestVoidWithContractFallback(attempts: [
+            (path: "/tables/\(id)/position", method: .patch),
+            (path: "/tables/\(id)/position", method: .put)
+        ], body: body)
     }
 
     func ringTableBell(_ id: String) async throws {
@@ -1113,8 +1459,15 @@ final class APIService {
     }
 
     // MARK: - Kitchen Stations
-    func fetchKitchenStations() async throws -> [KitchenStation] {
-        return try await request(path: "/kitchen-stations/")
+    func fetchKitchenStations(branchId: String? = nil) async throws -> [KitchenStation] {
+        guard let branchId, !branchId.isEmpty else {
+            return try await request(path: "/kitchen-stations/")
+        }
+
+        return try await requestWithContractFallback(attempts: [
+            (path: "/kitchen-stations/by-branch/\(branchId)", method: .get),
+            (path: "/kitchen-stations/", method: .get)
+        ])
     }
 
     func createKitchenStation(_ body: StationCreate) async throws -> KitchenStation {
@@ -1122,7 +1475,10 @@ final class APIService {
     }
 
     func updateKitchenStation(_ id: String, body: StationUpdate) async throws -> KitchenStation {
-        return try await request(path: "/kitchen-stations/\(id)", method: .put, body: body)
+        return try await requestWithContractFallback(attempts: [
+            (path: "/kitchen-stations/\(id)", method: .patch),
+            (path: "/kitchen-stations/\(id)", method: .put)
+        ], body: body)
     }
 
     func deleteKitchenStation(_ id: String) async throws {
@@ -1146,7 +1502,10 @@ final class APIService {
     }
 
     func updateReservation(_ id: String, body: ReservationUpdate) async throws -> Reservation {
-        return try await request(path: "/reservations/\(id)", method: .put, body: body)
+        return try await requestWithContractFallback(attempts: [
+            (path: "/reservations/\(id)", method: .patch),
+            (path: "/reservations/\(id)", method: .put)
+        ], body: body)
     }
 
     func deleteReservation(_ id: String) async throws {
@@ -1163,7 +1522,10 @@ final class APIService {
     }
 
     func updateDeliveryPartner(_ id: String, body: DeliveryPartnerUpdate) async throws -> DeliveryPartner {
-        return try await request(path: "/delivery/partners/\(id)", method: .put, body: body)
+        return try await requestWithContractFallback(attempts: [
+            (path: "/delivery/partners/\(id)", method: .patch),
+            (path: "/delivery/partners/\(id)", method: .put)
+        ], body: body)
     }
 
     func deleteDeliveryPartner(_ id: String) async throws {
@@ -1177,7 +1539,10 @@ final class APIService {
     }
 
     func updateDeliveryOrder(_ id: String, body: DeliveryOrderUpdate) async throws -> DeliveryOrder {
-        return try await request(path: "/delivery/orders/\(id)", method: .put, body: body)
+        return try await requestWithContractFallback(attempts: [
+            (path: "/delivery/orders/\(id)", method: .patch),
+            (path: "/delivery/orders/\(id)", method: .put)
+        ], body: body)
     }
 
     // MARK: - Staff Schedules
@@ -1194,6 +1559,10 @@ final class APIService {
         return try await request(path: "/schedules", method: .post, body: body)
     }
 
+    func createSchedules(_ entries: [ScheduleCreate]) async throws -> [StaffSchedule] {
+        return try await request(path: "/schedules/bulk", method: .post, body: entries)
+    }
+
     func updateSchedule(_ id: String, body: ScheduleUpdate) async throws -> StaffSchedule {
         return try await request(path: "/schedules/\(id)", method: .put, body: body)
     }
@@ -1204,17 +1573,23 @@ final class APIService {
 
     // MARK: - Reports (new)
     func fetchDailyReport(date: String? = nil) async throws -> DailyReport {
-        var path = "/reports/daily"
-        if let d = date { path += "?date=\(d)" }
-        return try await request(path: path)
+        let resolvedDate = date ?? defaultReportDayString()
+        return try await requestWithContractFallback(attempts: [
+            (path: "/reports/daily/\(resolvedDate)", method: .get),
+            (path: "/reports/daily?date=\(resolvedDate)", method: .get),
+            (path: "/reports/daily", method: .get)
+        ])
     }
 
     func fetchMonthlyReport(year: Int? = nil, month: Int? = nil) async throws -> MonthlyReport {
-        var params: [String] = []
-        if let y = year { params.append("year=\(y)") }
-        if let m = month { params.append("month=\(m)") }
-        let query = params.isEmpty ? "" : "?" + params.joined(separator: "&")
-        return try await request(path: "/reports/monthly\(query)")
+        let defaults = defaultReportYearMonth()
+        let resolvedYear = year ?? defaults.year
+        let resolvedMonth = month ?? defaults.month
+        return try await requestWithContractFallback(attempts: [
+            (path: "/reports/monthly/\(resolvedYear)/\(resolvedMonth)", method: .get),
+            (path: "/reports/monthly?year=\(resolvedYear)&month=\(resolvedMonth)", method: .get),
+            (path: "/reports/monthly", method: .get)
+        ])
     }
 
     func fetchProfitabilityReport(range: String = "30d") async throws -> [ProfitabilityRow] {

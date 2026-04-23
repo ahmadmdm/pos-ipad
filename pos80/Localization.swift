@@ -425,6 +425,13 @@ extension L10n {
     var allStations: String { t("All Stations", "جميع المحطات") }
     var startPreparing: String { t("Start Preparing", "بدء التحضير") }
     var kitchenStations: String { t("Kitchen Stations", "محطات المطبخ") }
+    var connecting: String { t("Connecting", "جارٍ الاتصال") }
+    var retrying: String { t("Retrying", "إعادة المحاولة") }
+    var pollingFallback: String { t("Polling", "استطلاع دوري") }
+    func kdsRetryingRealtime(_ attempt: Int, _ max: Int) -> String { t("Realtime unavailable. Retrying \(attempt)/\(max)...", "الاتصال المباشر غير متاح. إعادة المحاولة \(attempt)/\(max)...") }
+    var kdsRealtimeEndpointUnavailable: String { t("Realtime endpoint is not available on the server. Using polling.", "مسار التحديث المباشر غير متاح على الخادم. سيتم استخدام الاستطلاع الدوري.") }
+    func kdsRealtimeUpgradeRejected(_ status: Int) -> String { t("Realtime upgrade failed with HTTP \(status). Using polling.", "فشل ترقية الاتصال المباشر برمز HTTP \(status). سيتم استخدام الاستطلاع الدوري.") }
+    var kdsRealtimePollingFallback: String { t("Realtime is unavailable. Using polling fallback.", "التحديث المباشر غير متاح. سيتم استخدام الاستطلاع الدوري كخطة احتياط.") }
     var categories: String { t("Categories", "الفئات") }
 
     // MARK: - Reservations
@@ -450,6 +457,14 @@ extension L10n {
     var noDeliveryOrders: String { t("No delivery orders", "لا توجد طلبات توصيل") }
     var addPartner: String { t("Add Partner", "إضافة شريك") }
     var editPartner: String { t("Edit Partner", "تعديل شريك") }
+    var editDeliveryOrder: String { t("Edit Delivery Order", "تعديل طلب التوصيل") }
+    var deliveryAddress: String { t("Delivery Address", "عنوان التوصيل") }
+    var deliveryStatus: String { t("Delivery Status", "حالة التوصيل") }
+    var selectPartner: String { t("Select Partner", "اختر الشريك") }
+    var unassignedPartner: String { t("Unassigned", "غير معيّن") }
+    var invalidDeliveryFee: String { t("Enter a valid delivery fee", "أدخل رسوم توصيل صحيحة") }
+    var deliveryOrderUpdated: String { t("Delivery order updated", "تم تحديث طلب التوصيل") }
+    var partnerSaved: String { t("Partner saved", "تم حفظ الشريك") }
     var vehicleLabel: String { t("Vehicle Label", "وصف المركبة") }
     var fee: String { t("Fee", "الرسوم") }
 
@@ -459,11 +474,23 @@ extension L10n {
     var noSchedules: String { t("No schedules for this date", "لا توجد جداول لهذا التاريخ") }
     var addSchedule: String { t("Add Schedule", "إضافة جدول") }
     var editSchedule: String { t("Edit Schedule", "تعديل جدول") }
+    var bulkSchedule: String { t("Bulk Schedule", "جدولة متعددة") }
     var staffMember: String { t("Staff Member", "الموظف") }
     var selectStaff: String { t("Select Staff", "اختر الموظف") }
     var dayOff: String { t("Day Off", "يوم إجازة") }
     var shiftStart: String { t("Shift Start", "بداية الوردية") }
     var shiftEnd: String { t("Shift End", "نهاية الوردية") }
+    var scheduleRange: String { t("Schedule Range", "نطاق الجدولة") }
+    var fromDate: String { t("From Date", "من تاريخ") }
+    var toDate: String { t("To Date", "إلى تاريخ") }
+    var applyOnDays: String { t("Apply On Days", "تطبيق على الأيام") }
+    var scheduleBranchRequired: String { t("Your account must be linked to a branch before creating schedules", "يجب ربط الحساب بفرع قبل إنشاء الجداول") }
+    var completeScheduleFields: String { t("Select staff, date, and shift times first", "اختر الموظف والتاريخ وأوقات الوردية أولاً") }
+    var invalidScheduleRange: String { t("End date must be the same as or after the start date", "يجب أن يكون تاريخ النهاية بعد أو مساوياً لتاريخ البداية") }
+    var selectAtLeastOneScheduleDay: String { t("Select at least one weekday", "اختر يوماً واحداً على الأقل") }
+    var noMatchingScheduleDates: String { t("No matching dates were generated for the selected range", "لم يتم توليد تواريخ مطابقة للنطاق المحدد") }
+    var scheduleSaved: String { t("Schedule saved", "تم حفظ الجدول") }
+    func bulkSchedulesCreated(_ count: Int) -> String { t("Created \(count) schedule entries", "تم إنشاء \(count) من الجداول") }
 
     // MARK: - 2FA & Auth
     var twoFactorAuth: String { t("Two-Factor Authentication", "المصادقة الثنائية") }
@@ -480,6 +507,8 @@ extension L10n {
     var twoFASetupSuccess: String { t("2FA enabled successfully", "تم تفعيل المصادقة الثنائية بنجاح") }
     var twoFADisableSuccess: String { t("2FA disabled successfully", "تم تعطيل المصادقة الثنائية بنجاح") }
     var secretKey: String { t("Secret Key", "المفتاح السري") }
+    var confirmPasswordToDisable2FA: String { t("Confirm your current password to disable 2FA", "أكد كلمة المرور الحالية لتعطيل المصادقة الثنائية") }
+    var currentPasswordRequired: String { t("Enter your current password", "أدخل كلمة المرور الحالية") }
 
     // MARK: - Change Password
     var changePassword: String { t("Change Password", "تغيير كلمة المرور") }
@@ -515,6 +544,8 @@ extension L10n {
     var ordersReport: String { t("Orders Report", "تقرير الطلبات") }
     var revenue: String { t("Revenue", "الإيرادات") }
     var profit: String { t("Profit", "الربح") }
+    var expenses: String { t("Expenses", "المصروفات") }
+    var netIncome: String { t("Net Income", "صافي الدخل") }
     var margin: String { t("Margin", "الهامش") }
     var productName: String { t("Product", "المنتج") }
     var unitsSold: String { t("Units Sold", "الوحدات المباعة") }
@@ -523,6 +554,24 @@ extension L10n {
     var totalRevenueLbl: String { t("Total Revenue", "إجمالي الإيرادات") }
     var totalCost: String { t("Total Cost", "إجمالي التكلفة") }
     var totalProfit: String { t("Total Profit", "إجمالي الربح") }
+    var accountingOverview: String { t("Accounting Overview", "ملخص المحاسبة") }
+    var taxableSales: String { t("Taxable Sales", "المبيعات الخاضعة للضريبة") }
+    var exemptSales: String { t("Exempt Sales", "المبيعات المعفاة") }
+    var zeroRatedSales: String { t("Zero-Rated Sales", "المبيعات بنسبة صفرية") }
+    var trialBalance: String { t("Trial Balance", "ميزان المراجعة") }
+    var balanceSheet: String { t("Balance Sheet", "الميزانية العمومية") }
+    var journalEntries: String { t("Journal Entries", "قيود اليومية") }
+    var generalLedger: String { t("General Ledger", "دفتر الأستاذ") }
+    var selectAccount: String { t("Select Account", "اختر الحساب") }
+    var reference: String { t("Reference", "المرجع") }
+    var noAccountingData: String { t("No accounting data available for this range", "لا توجد بيانات محاسبية متاحة لهذه الفترة") }
+    var assets: String { t("Assets", "الأصول") }
+    var liabilities: String { t("Liabilities", "الخصوم") }
+    var equity: String { t("Equity", "حقوق الملكية") }
+    var account: String { t("Account", "الحساب") }
+    var debit: String { t("Debit", "مدين") }
+    var credit: String { t("Credit", "دائن") }
+    var balance: String { t("Balance", "الرصيد") }
 
     // MARK: - Tables (Extended)
     var addTable: String { t("Add Table", "إضافة طاولة") }

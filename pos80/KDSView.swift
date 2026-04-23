@@ -4,8 +4,10 @@ import Combine
 
 struct KDSView: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.scenePhase) private var scenePhase
     private let api = APIService.shared
     private let l10n = L10n.shared
+    @StateObject private var realtime = KDSRealtimeService()
 
     @State private var orders: [Order] = []
     @State private var stations: [KitchenStation] = []
@@ -20,6 +22,9 @@ struct KDSView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if let diagnosticBannerText {
+                realtimeDiagnosticBanner(text: diagnosticBannerText)
+            }
             stationPicker
 
             if isLoading && orders.isEmpty {
@@ -52,12 +57,39 @@ struct KDSView: View {
             }
         }
         .background(AppTheme.bgGradient.ignoresSafeArea())
-        .task { await loadAll() }
-        .onReceive(refreshTimer) { _ in Task { await loadOrders() } }
+        .task {
+            await loadAll()
+            realtime.connect(branchId: appState.currentUser?.branchId, accessToken: api.accessToken)
+        }
+        .onReceive(refreshTimer) { _ in
+            guard !realtime.isConnected else { return }
+            Task { await loadOrders() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: kdsChangedNotification)) { _ in
             Task { await loadOrders() }
         }
-        .sheet(isPresented: $showStationSettings) { KitchenStationsSheet(stations: $stations) }
+        .onChange(of: appState.currentUser?.branchId) { _ in
+            realtime.connect(branchId: appState.currentUser?.branchId, accessToken: api.accessToken)
+            selectedStationId = nil
+            Task { await loadAll() }
+        }
+        .onChange(of: scenePhase) { newPhase in
+            switch newPhase {
+            case .active:
+                realtime.connect(branchId: appState.currentUser?.branchId, accessToken: api.accessToken)
+            default:
+                realtime.disconnect()
+            }
+        }
+        .onDisappear {
+            realtime.disconnect()
+        }
+        .sheet(isPresented: $showStationSettings) {
+            KitchenStationsSheet(
+                stations: $stations,
+                branchId: appState.currentUser?.branchId
+            )
+        }
     }
 
     private var header: some View {
@@ -67,6 +99,13 @@ struct KDSView: View {
                 Text(l10n.kdsSubtitle).font(AppTheme.caption(13)).foregroundColor(AppTheme.textMuted)
             }
             Spacer()
+            Text(connectionBadgeLabel)
+                .font(AppTheme.caption(11))
+                .foregroundColor(connectionBadgeColor)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(connectionBadgeColor.opacity(0.12))
+                .cornerRadius(999)
             Button { showStationSettings = true } label: {
                 Label(l10n.stations, systemImage: "gearshape.2.fill")
                     .font(AppTheme.caption(13)).foregroundColor(AppTheme.textSecondary)
@@ -107,6 +146,67 @@ struct KDSView: View {
             }.padding(.horizontal, 20)
         }
         .padding(.bottom, 8)
+    }
+
+    private var connectionBadgeLabel: String {
+        if realtime.isConnected {
+            return l10n.live
+        }
+        if realtime.isConnecting && realtime.retryAttempt > 0 {
+            return l10n.retrying
+        }
+        if realtime.isConnecting {
+            return l10n.connecting
+        }
+        return l10n.pollingFallback
+    }
+
+    private var connectionBadgeColor: Color {
+        if realtime.isConnected {
+            return AppTheme.success
+        }
+        if realtime.isConnecting {
+            return AppTheme.info
+        }
+        return AppTheme.warning
+    }
+
+    private var diagnosticBannerText: String? {
+        if realtime.isConnected {
+            return nil
+        }
+        if realtime.isConnecting && realtime.retryAttempt > 0 {
+            return l10n.kdsRetryingRealtime(realtime.retryAttempt, realtime.maxRetryCount)
+        }
+        if realtime.fallbackStatusCode == 404 {
+            return l10n.kdsRealtimeEndpointUnavailable
+        }
+        if let status = realtime.fallbackStatusCode {
+            return l10n.kdsRealtimeUpgradeRejected(status)
+        }
+        if realtime.hasFallbackDiagnostic {
+            return l10n.kdsRealtimePollingFallback
+        }
+        return nil
+    }
+
+    private func realtimeDiagnosticBanner(text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: realtime.isConnecting ? "arrow.clockwise" : "wifi.slash")
+                .font(.system(size: 12, weight: .semibold))
+            Text(text)
+                .font(AppTheme.caption(12))
+                .foregroundColor(AppTheme.textPrimary)
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background((realtime.isConnecting ? AppTheme.info : AppTheme.warning).opacity(0.12))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill((realtime.isConnecting ? AppTheme.info : AppTheme.warning).opacity(0.2))
+                .frame(height: 1)
+        }
     }
 
     private func kdsCard(_ order: Order) -> some View {
@@ -176,7 +276,7 @@ struct KDSView: View {
         isLoading = true
         loadError = nil
         do {
-            stations = try await api.fetchKitchenStations()
+            stations = try await api.fetchKitchenStations(branchId: appState.currentUser?.branchId)
         } catch {
             // Stations are optional; don't block KDS if endpoint missing
             stations = []
@@ -208,6 +308,7 @@ struct KDSView: View {
 // MARK: - Kitchen Stations Sheet
 struct KitchenStationsSheet: View {
     @Binding var stations: [KitchenStation]
+    let branchId: String?
     @Environment(\.dismiss) var dismiss
     private let api = APIService.shared
     private let l10n = L10n.shared
@@ -303,7 +404,7 @@ struct KitchenStationsSheet: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            stations = try await api.fetchKitchenStations()
+            stations = try await api.fetchKitchenStations(branchId: branchId)
             loadError = nil
         } catch {
             stations = []

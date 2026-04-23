@@ -1,0 +1,50 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "KDS: Realtime Smoke Check",
+      "type": "shell",
+      "command": "./scripts/check-kds-realtime.mjs",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "AMPOS_BASE_URL": "${input:amposBaseUrl}",
+          "AMPOS_USERNAME": "${input:amposUsername}",
+          "AMPOS_PASSWORD": "${input:amposPassword}",
+          "AMPOS_BRANCH_ID": "${input:amposBranchId}"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "amposBaseUrl",
+      "type": "promptString",
+      "description": "Ampos base URL",
+      "default": "https://ampos-api.clo0.net"
+    },
+    {
+      "id": "amposUsername",
+      "type": "promptString",
+      "description": "Ampos username or email"
+    },
+    {
+      "id": "amposPassword",
+      "type": "promptString",
+      "description": "Ampos password",
+      "password": true
+    },
+    {
+      "id": "amposBranchId",
+      "type": "promptString",
+      "description": "Branch ID (optional, leave empty to auto-detect)",
+      "default": ""
+    }
+  ]
+}

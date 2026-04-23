@@ -1,0 +1,48 @@
+name: KDS Realtime Smoke Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Ampos base URL override
+        required: false
+        default: ""
+      branch_id:
+        description: Branch ID override
+        required: false
+        default: ""
+      ws_timeout_ms:
+        description: WebSocket timeout in milliseconds
+        required: false
+        default: "12000"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AMPOS_BASE_URL: ${{ inputs.base_url != '' && inputs.base_url || secrets.AMPOS_BASE_URL }}
+      AMPOS_USERNAME: ${{ secrets.AMPOS_USERNAME }}
+      AMPOS_PASSWORD: ${{ secrets.AMPOS_PASSWORD }}
+      AMPOS_BRANCH_ID: ${{ inputs.branch_id != '' && inputs.branch_id || secrets.AMPOS_BRANCH_ID }}
+      AMPOS_WS_TIMEOUT_MS: ${{ inputs.ws_timeout_ms }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate required secrets
+        run: |
+          test -n "$AMPOS_USERNAME" || { echo "Missing secret: AMPOS_USERNAME"; exit 1; }
+          test -n "$AMPOS_PASSWORD" || { echo "Missing secret: AMPOS_PASSWORD"; exit 1; }
+
+      - name: Run KDS realtime smoke test
+        run: ./scripts/check-kds-realtime.mjs

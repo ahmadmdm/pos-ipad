@@ -14,6 +14,7 @@ struct DeliveryView: View {
     @State private var isLoading = false
     @State private var showAddPartner = false
     @State private var editingPartner: DeliveryPartner?
+    @State private var editingOrder: DeliveryOrder?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,8 +53,15 @@ struct DeliveryView: View {
         }
         .background(AppTheme.bgGradient.ignoresSafeArea())
         .task { await loadAll() }
-        .sheet(isPresented: $showAddPartner) { DeliveryPartnerFormSheet(partner: nil, onSave: { await loadPartners() }) }
-        .sheet(item: $editingPartner) { p in DeliveryPartnerFormSheet(partner: p, onSave: { await loadPartners() }) }
+        .sheet(isPresented: $showAddPartner) {
+            DeliveryPartnerFormSheet(partner: nil, onSave: { await loadPartners() })
+        }
+        .sheet(item: $editingPartner) { p in
+            DeliveryPartnerFormSheet(partner: p, onSave: { await loadPartners() })
+        }
+        .sheet(item: $editingOrder) { order in
+            DeliveryOrderFormSheet(order: order, partners: partners, onSave: { await loadOrders() })
+        }
     }
 
     private var ordersTab: some View {
@@ -75,6 +83,11 @@ struct DeliveryView: View {
                                     if let addr = order.deliveryAddress {
                                         Text(addr).font(AppTheme.caption(12)).foregroundColor(AppTheme.textSecondary).lineLimit(1)
                                     }
+                                    if let partnerName = partnerName(for: order.deliveryPartnerId) {
+                                        Text(partnerName)
+                                            .font(AppTheme.caption(11))
+                                            .foregroundColor(AppTheme.textMuted)
+                                    }
                                     HStack(spacing: 8) {
                                         if let fee = order.deliveryFee {
                                             Text("\(l10n.fee): \(String(format: "%.2f", fee))")
@@ -89,6 +102,11 @@ struct DeliveryView: View {
                                     }
                                 }
                                 Spacer()
+                                Button { editingOrder = order } label: {
+                                    Image(systemName: "pencil.circle.fill")
+                                        .font(.system(size: 20))
+                                        .foregroundColor(AppTheme.accent)
+                                }
                             }
                             .padding(14)
                             .background(AppTheme.card).cornerRadius(AppTheme.r12)
@@ -139,15 +157,43 @@ struct DeliveryView: View {
 
     private func loadAll() async {
         isLoading = true
-        await loadPartners()
-        deliveryOrders = (try? await api.fetchDeliveryOrders()) ?? []
-        isLoading = false
+        defer { isLoading = false }
+
+        async let partnersTask: Void = loadPartners()
+        async let ordersTask: Void = loadOrders()
+        _ = await (partnersTask, ordersTask)
     }
 
-    private func loadPartners() async { partners = (try? await api.fetchDeliveryPartners()) ?? [] }
+    private func loadPartners() async {
+        do {
+            partners = try await api.fetchDeliveryPartners()
+        } catch {
+            partners = []
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func loadOrders() async {
+        do {
+            deliveryOrders = try await api.fetchDeliveryOrders()
+        } catch {
+            deliveryOrders = []
+            appState.showError(error.localizedDescription)
+        }
+    }
+
     private func deletePartner(_ id: String) async {
-        try? await api.deleteDeliveryPartner(id)
-        await loadPartners()
+        do {
+            try await api.deleteDeliveryPartner(id)
+            await loadPartners()
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
+    }
+
+    private func partnerName(for id: String?) -> String? {
+        guard let id else { return nil }
+        return partners.first(where: { $0.id == id })?.name
     }
 }
 
@@ -155,6 +201,7 @@ struct DeliveryView: View {
 struct DeliveryPartnerFormSheet: View {
     let partner: DeliveryPartner?
     let onSave: () async -> Void
+    @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) var dismiss
     private let api = APIService.shared
     private let l10n = L10n.shared
@@ -194,23 +241,118 @@ struct DeliveryPartnerFormSheet: View {
 
     private func save() async {
         saving = true
+        defer { saving = false }
+
         if let p = partner {
             let body = DeliveryPartnerUpdate(
                 name: name, phone: phone.isEmpty ? nil : phone,
                 vehicleLabel: vehicleLabel.isEmpty ? nil : vehicleLabel,
                 isActive: isActive
             )
-            _ = try? await api.updateDeliveryPartner(p.id, body: body)
+            do {
+                _ = try await api.updateDeliveryPartner(p.id, body: body)
+            } catch {
+                appState.showError(error.localizedDescription)
+                return
+            }
         } else {
             let body = DeliveryPartnerCreate(
                 name: name,
                 phone: phone.isEmpty ? nil : phone,
                 vehicleLabel: vehicleLabel.isEmpty ? nil : vehicleLabel
             )
-            _ = try? await api.createDeliveryPartner(body)
+            do {
+                _ = try await api.createDeliveryPartner(body)
+            } catch {
+                appState.showError(error.localizedDescription)
+                return
+            }
         }
+
         await onSave()
-        saving = false
+        appState.showSuccess(l10n.partnerSaved)
         dismiss()
+    }
+}
+
+struct DeliveryOrderFormSheet: View {
+    let order: DeliveryOrder
+    let partners: [DeliveryPartner]
+    let onSave: () async -> Void
+    @EnvironmentObject var appState: AppState
+    @Environment(\.dismiss) var dismiss
+    private let api = APIService.shared
+    private let l10n = L10n.shared
+
+    @State private var deliveryAddress = ""
+    @State private var deliveryFee = ""
+    @State private var deliveryPartnerId = ""
+    @State private var deliveryStatus = ""
+    @State private var saving = false
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(l10n.details) {
+                    TextField(l10n.deliveryAddress, text: $deliveryAddress)
+                    TextField(l10n.fee, text: $deliveryFee)
+                        .keyboardType(.decimalPad)
+                    TextField(l10n.deliveryStatus, text: $deliveryStatus)
+
+                    Picker(l10n.selectPartner, selection: $deliveryPartnerId) {
+                        Text(l10n.unassignedPartner).tag("")
+                        ForEach(partners) { partner in
+                            Text(partner.name).tag(partner.id)
+                        }
+                    }
+                }
+            }
+            .navigationTitle(l10n.editDeliveryOrder)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button(l10n.cancel) { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(l10n.save) { Task { await save() } }
+                        .disabled(saving)
+                }
+            }
+            .onAppear {
+                deliveryAddress = order.deliveryAddress ?? ""
+                deliveryFee = order.deliveryFee.map { String(format: "%.2f", $0) } ?? ""
+                deliveryPartnerId = order.deliveryPartnerId ?? ""
+                deliveryStatus = order.deliveryStatus ?? ""
+            }
+        }
+    }
+
+    private func save() async {
+        saving = true
+        defer { saving = false }
+
+        let parsedFee: Double?
+        if deliveryFee.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parsedFee = nil
+        } else if let value = Double(deliveryFee) {
+            parsedFee = value
+        } else {
+            appState.showError(l10n.invalidDeliveryFee)
+            return
+        }
+
+        let body = DeliveryOrderUpdate(
+            deliveryAddress: deliveryAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : deliveryAddress.trimmingCharacters(in: .whitespacesAndNewlines),
+            deliveryFee: parsedFee,
+            deliveryPartnerId: deliveryPartnerId.isEmpty ? nil : deliveryPartnerId,
+            deliveryStatus: deliveryStatus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : deliveryStatus.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+
+        do {
+            _ = try await api.updateDeliveryOrder(order.id, body: body)
+            await onSave()
+            appState.showSuccess(l10n.deliveryOrderUpdated)
+            dismiss()
+        } catch {
+            appState.showError(error.localizedDescription)
+        }
     }
 }
